@@ -10,7 +10,8 @@ Surfaces ~33 active paid campaigns per session (Mon / Wed / Fri) as decision car
 
 The Mon/Wed/Fri assignment is **human-curated, not AI-decided**. Campaigns are assigned to Review Slot 1 / 2 / 3 in the **`database` tab** of the campaign ledger Google Sheet, and the assignment is **mostly permanent** with occasional manual moves. The sheet is the source of truth.
 
-- Sheet-syncer Edge Function reads the `database` tab **hourly** → upserts into `dca_campaign_ledger` (key = `event_id`, last-row-wins on duplicates).
+- Sheet-syncer Edge Function reads the `database` tab **hourly** → upserts into `dca_campaign_ledger` (key = first `event_id` in cell, full list stored in `event_ids text[]` for festival/multi-event landing pages).
+- **Slot day mapping: `review_slot = 1` → Monday, `2` → Wednesday, `3` → Friday.**
 - Red Flag detector loops only over `dca_campaign_ledger WHERE review_slot = today's_slot AND status = 'running' AND days_since_launch >= 7`.
 - Rows missing from the sheet are **soft-deleted** (`status = 'inactive'`) — never row-deleted.
 - Status is normalised on write against an allowlist: `running`, `ended`, `stopped`, `cancelled`, `paused`, `postponed`, `soldout`. Anything starting with `ended` (e.g. "Ended - event sold out") maps to `ended`. Empty or unrecognised values become `unknown` and are logged for review (sheet never mutated).

@@ -15,7 +15,10 @@ import { transformSheet } from "../supabase/functions/_shared/ledger-transform.t
 import { syncLedger, type SupabaseLike } from "../supabase/functions/_shared/ledger-sync.ts";
 
 const SHEET = "1zQnQudbjsUhCSZwSaOW9w7AO1-YX-7YL1xmessJGQew";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET}/gviz/tq?tqx=out:csv&sheet=database`;
+// MUST match the deployed function's endpoint exactly (gid=0 = "database" tab).
+// Using gviz here previously hid pipe-delimited multi-id cells and desynced
+// the smoke from prod — never use gviz for this.
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET}/export?format=csv&gid=0`;
 
 function parseCSV(s: string): string[][] {
   const rows: string[][] = [];
@@ -67,6 +70,20 @@ async function main() {
     .limit(5);
   console.log("\nSample 5 rows from dca_campaign_ledger:");
   console.dir(sample, { depth: null });
+
+  // Festival spot-check: rows where event_ids has >1 entry.
+  const { data: multi } = await sb
+    .from("dca_campaign_ledger")
+    .select("event_id, event_name, event_ids")
+    .limit(5000);
+  const festivals = (multi ?? []).filter(
+    (r: any) => Array.isArray(r.event_ids) && r.event_ids.length > 1,
+  );
+  console.log(`\nFestival rows (event_ids length > 1): ${festivals.length}`);
+  console.log("Top 5 by array size:");
+  for (const r of festivals.sort((a: any, b: any) => b.event_ids.length - a.event_ids.length).slice(0, 5)) {
+    console.log(`   ${r.event_id} "${r.event_name}" → ${r.event_ids.length} ids`);
+  }
 }
 
 main().catch((e) => {

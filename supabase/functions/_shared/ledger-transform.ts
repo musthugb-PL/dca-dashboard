@@ -16,7 +16,8 @@
  */
 
 export type LedgerRecord = {
-  event_id: string;
+  event_id: string; // primary key = first id in the cell (backward-compat)
+  event_ids: string[]; // full list — multi-id landing pages / festivals
   event_name: string;
   event_link: string;
   budget_aed: number | null;
@@ -166,11 +167,19 @@ export function transformSheet(values: string[][]): TransformResult {
   const dupIds = new Set<string>();
 
   for (const row of dataRows) {
-    const event_id = cell(row, idx.event_id);
-    if (!event_id) {
+    // Multi-id landing pages store ids pipe-delimited, e.g. "90185|89712".
+    // Split, trim, drop empty/'null' pieces. Empty result → genuinely empty row.
+    const rawId = idx.event_id >= 0 ? (row[idx.event_id] ?? "") : "";
+    const ids = rawId
+      .split("|")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.toLowerCase() !== "null");
+    if (ids.length === 0) {
       skippedEmpty++;
       continue;
     }
+    const event_id = ids[0]; // primary key
+
     if (seen.has(event_id)) dupIds.add(event_id);
     seen.add(event_id);
 
@@ -182,6 +191,7 @@ export function transformSheet(values: string[][]): TransformResult {
 
     byId.set(event_id, {
       event_id,
+      event_ids: ids,
       event_name: cell(row, idx.event_name),
       event_link: cell(row, idx.event_link),
       budget_aed: parseBudget(cell(row, idx.budget)),
