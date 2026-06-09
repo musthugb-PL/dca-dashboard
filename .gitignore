@@ -25,12 +25,28 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
+# local env files (never commit real secrets; .example files are allowed)
+.env
 .env*.local
+!.env*.example
 
 # vercel
 .vercel
 
+# supabase CLI local metadata
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# secrets — service-account / credential JSON keys (Sacred Rule #10)
+# Targeted patterns only — never a blanket *.json (would catch package.json, tsconfig.json, etc.)
+*service-account*.json
+gcp-*.json
+*-credentials*.json
+*.key.json
+
+# env files (explicit reinforcement of lines above; real secrets never committed)
+.env
+.env.production

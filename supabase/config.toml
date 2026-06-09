@@ -1,0 +1,10 @@
+project_id = "kwftlkfvtglnugxsyjci"
+
+[functions.sheet-syncer]
+enabled = true
+# v1: the cron job invokes the function without an Authorization header, so we
+# disable JWT verification (avoids the Vault/secret-in-SQL dance). Trade-off:
+# the function URL becomes publicly triggerable — but a trigger only re-runs an
+# idempotent sync that reads a public sheet and writes ONLY dca_campaign_ledger.
+# Phase 2 hardening: set verify_jwt = true + an authenticated schedule.
+verify_jwt = false
