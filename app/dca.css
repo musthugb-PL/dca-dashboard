@@ -1,0 +1,182 @@
+/* ==========================================================================
+   DCA dashboard — project composition classes.
+   Layout/structure only. Every colour & size resolves to a PL semantic token
+   (no hardcoded hex/px). These compose the DS primitives for the decision-card
+   surface; they introduce no new colours.
+   ========================================================================== */
+
+.dca-page { max-width: 1100px; margin: 0 auto; padding: var(--spacing-32) var(--spacing-24) var(--spacing-40); width: 100%; }
+
+/* Header */
+.dca-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-16); margin-bottom: var(--spacing-24); }
+.dca-header-meta { display: flex; flex-direction: column; gap: var(--spacing-6); }
+.dca-slot { color: var(--content-secondary); }
+.dca-count { color: var(--content-secondary); }
+
+/* Filter / toolbar */
+.dca-toolbar { display: flex; align-items: center; gap: var(--spacing-12); flex-wrap: wrap; margin-bottom: var(--spacing-24); }
+.dca-toolbar-search { flex: 1; min-width: 220px; }
+
+/* Card list */
+.dca-cards { display: flex; flex-direction: column; gap: var(--spacing-16); }
+
+/* Card header row */
+.dca-card-head { display: flex; align-items: center; gap: var(--spacing-8); flex-wrap: wrap; }
+.dca-card-title { color: var(--content-primary); margin: 0; }
+.dca-spacer { flex: 1; }
+
+/* Chips & neutral pills (token-only, no new colours) */
+.dca-chip {
+  display: inline-flex; align-items: center; gap: var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-8); border-radius: var(--radius-pill);
+  background: var(--bg-secondary); color: var(--content-secondary);
+  font-size: var(--font-size-xs); line-height: var(--font-line-height-2xs);
+  font-weight: var(--font-weight-semibold); white-space: nowrap;
+}
+.dca-chip--count { background: var(--bg-secondary); color: var(--content-primary); }
+
+/* Subtitle line */
+.dca-subtitle { color: var(--content-secondary); margin: var(--spacing-8) 0 0; display: flex; flex-wrap: wrap; gap: var(--spacing-6); align-items: center; }
+.dca-dot-sep { color: var(--content-highlight); }
+
+/* Stats grid */
+.dca-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-12); margin-top: var(--spacing-16); }
+.dca-stat { display: flex; flex-direction: column; gap: var(--spacing-2); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); }
+.dca-stat-label { color: var(--content-secondary); }
+.dca-stat-value { color: var(--content-primary); }
+
+/* AI-brain placeholder slots (card) */
+.dca-ai-row { display: flex; align-items: center; gap: var(--spacing-8); margin-top: var(--spacing-12); flex-wrap: wrap; }
+.dca-ai-verb {
+  display: inline-flex; align-items: center; padding: var(--spacing-2) var(--spacing-8);
+  border-radius: var(--radius-xs); background: var(--bg-secondary); color: var(--content-secondary);
+  font-size: var(--font-size-xs); line-height: var(--font-line-height-2xs); font-weight: var(--font-weight-semibold);
+}
+.dca-ai-reason { color: var(--content-secondary); }
+
+/* Lens dots — 3-level traffic light (grey until P2.2 scores arrive) */
+.dca-lenses { display: flex; gap: var(--spacing-16); margin-top: var(--spacing-16); flex-wrap: wrap; }
+.dca-lens { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-4); }
+.dca-lens-dot { width: var(--spacing-12); height: var(--spacing-12); border-radius: var(--radius-pill); background: var(--aussie-50); }
+.dca-lens-dot--grey   { background: var(--aussie-50); }
+.dca-lens-dot--green  { background: var(--accent-success); }
+.dca-lens-dot--yellow { background: var(--accent-caution); }
+.dca-lens-dot--red    { background: var(--accent-alert); }
+.dca-lens-label { color: var(--content-secondary); }
+
+/* Loading state */
+.dca-loading { padding: var(--spacing-40) var(--spacing-24); text-align: center; color: var(--content-secondary); }
+
+/* Card footer */
+.dca-card-foot { display: flex; justify-content: flex-end; margin-top: var(--spacing-16); }
+
+/* Empty state */
+.dca-empty { padding: var(--spacing-40) var(--spacing-24); text-align: center; color: var(--content-secondary); }
+
+/* Report page */
+.dca-report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--spacing-12); margin-top: var(--spacing-16); }
+.dca-back { margin-bottom: var(--spacing-16); display: inline-flex; }
+.dca-channel-row { display: flex; justify-content: space-between; padding: var(--spacing-8) 0; color: var(--content-primary); }
+
+/* Report — lens sections */
+.dca-lens-sections { display: flex; flex-direction: column; gap: var(--spacing-12); margin-top: var(--spacing-24); }
+.dca-lens-head { display: flex; align-items: center; gap: var(--spacing-8); }
+.dca-lens-window { color: var(--content-secondary); }
+.dca-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--spacing-8); margin-top: var(--spacing-12); }
+.dca-tile { display: flex; flex-direction: column; gap: var(--spacing-2); padding: var(--spacing-8) var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); }
+.dca-tile-label { color: var(--content-secondary); }
+.dca-tile-value { color: var(--content-primary); }
+.dca-diag { margin: var(--spacing-12) 0 0; padding-left: var(--spacing-16); color: var(--content-secondary); }
+.dca-diag li { margin: var(--spacing-2) 0; }
+.dca-ref-line { color: var(--content-secondary); margin: var(--spacing-6) 0 0; }
+
+/* Report — verdict */
+.dca-verdict { margin-top: var(--spacing-24); }
+.dca-verdict-action { display: flex; align-items: center; gap: var(--spacing-8); margin: var(--spacing-12) 0; }
+.dca-checklist { display: flex; flex-direction: column; gap: var(--spacing-8); margin: var(--spacing-12) 0; }
+.dca-check-row { display: flex; align-items: center; gap: var(--spacing-8); color: var(--content-primary); }
+.dca-strategic { color: var(--content-secondary); margin: var(--spacing-12) 0; }
+.dca-outcome { display: flex; flex-direction: column; gap: var(--spacing-6); margin: var(--spacing-16) 0; }
+.dca-outcome textarea {
+  width: 100%; min-height: 64px; resize: vertical; padding: var(--spacing-12);
+  border: 1px solid var(--bg-border); border-radius: var(--radius-sm); background: var(--bg-floating);
+  color: var(--content-primary); font-family: inherit; font-size: var(--font-size-sm);
+}
+.dca-outcome textarea:disabled { background: var(--interaction-disable-bg); color: var(--interaction-disable-content); cursor: not-allowed; }
+.dca-verdict-actions { display: flex; gap: var(--spacing-8); margin-top: var(--spacing-12); }
+
+/* ==========================================================================
+   "Marketing command centre" visual theme — dark, purple-accented, glowing.
+   Matches the existing Marketing Insights Dashboard. Dark-mode is forced by
+   default, where PL semantic tokens already resolve to the target surfaces:
+     page  --bg-default   = #0F0F15 (aussie-100)
+     card  --bg-floating  = #24242E (aussie-95)
+     tile  --bg-secondary = #2C2C38 (aussie-90)
+   Purple accents use the poodle tokens as specified.
+   ========================================================================== */
+
+/* 3. Background progression — page sits on near-black (not the wash) */
+.pl-app { background: var(--bg-default); }
+
+/* 6. Card borders + purple hover glow */
+.pl-card-elevated { border: 1px solid var(--aussie-90); }
+.pl-card-elevated:hover {
+  border-color: rgba(126, 5, 232, 0.5);
+  box-shadow: 0 0 24px rgba(126, 5, 232, 0.15);
+}
+
+/* 2 + 4. Title in purple */
+.dca-page h1 { color: var(--poodle-primary); }
+
+/* 4. Section titles accent (report page sections) */
+.dca-page section h2 { color: var(--poodle-primary); }
+
+/* 2. Active slot pill + active filter — purple with glow underline */
+.dca-toolbar .pl-tag.sel,
+.dca-toolbar .pl-tag.sel:hover {
+  background: var(--poodle-primary);
+  color: var(--aussie-white);
+  box-shadow: 0 2px 8px rgba(126, 5, 232, 0.4), 0 0 24px rgba(126, 5, 232, 0.15);
+}
+
+/* 2. Clickable accent text — "Open report" + back link in poodle-40 */
+.dca-card-foot .pl-btn-outline {
+  color: var(--poodle-40);
+  border-color: var(--poodle-40);
+}
+.dca-card-foot .pl-btn-outline:hover {
+  color: var(--aussie-white);
+  border-color: var(--poodle-primary);
+  box-shadow: 0 0 24px rgba(126, 5, 232, 0.15);
+}
+
+/* 4. Typography pop — big confident numbers */
+.dca-stat-value { font-size: var(--font-size-xl); font-weight: var(--font-weight-bold); }
+/* KPI strip on the report page (uses .dca-report-grid) → the dominant figures */
+.dca-report-grid .dca-tile-value {
+  font-size: var(--font-size-2xl);
+  line-height: var(--font-line-height-2xl);
+  font-weight: var(--font-weight-bold);
+}
+.dca-card-title { color: var(--content-primary); }
+
+/* 5. Delta indicator pills (ready for WoW deltas — populated in P2.2) */
+.dca-delta {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: var(--spacing-2) var(--spacing-8); border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs); line-height: var(--font-line-height-2xs);
+  font-weight: var(--font-weight-semibold); white-space: nowrap;
+}
+.dca-delta--up   { background: var(--accent-success-light); color: var(--accent-success); }
+.dca-delta--down { background: var(--accent-alert-light);   color: var(--accent-alert); }
+
+/* 2. AI verb chip + lens window get a touch of purple accent */
+.dca-ai-verb { color: var(--poodle-40); }
+
+/* 7. Off-day banner — amber note styling (like the GA4 data note) */
+.dca-banner {
+  background: var(--accent-caution-light);
+  border-left: 4px solid var(--accent-caution);
+  border-radius: var(--radius-sm);
+}
+.dca-banner p { color: var(--accent-caution); }

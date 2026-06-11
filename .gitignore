@@ -36,6 +36,9 @@ yarn-error.log*
 # supabase CLI local metadata
 supabase/.temp/
 
+# large local data dumps (Source B workbook download — never commit)
+*.xlsx
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
