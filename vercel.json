@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/source-b-weekly-syncer", "schedule": "5 * * * *" },
+    { "path": "/api/red-flag-detector", "schedule": "0 2 * * 1,3,5" }
+  ]
+}
