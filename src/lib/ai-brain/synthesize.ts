@@ -46,6 +46,8 @@ export async function synthesize(
     `if within-event optimisation can't fix it, the action is escalation to a human. ` +
     `IF this event's own ad-set distribution shows a clear efficiency gap (a top performer's ROAS/efficiency >=3x the worst), ADD atomic steps citing the EXACT ad_name/campaign strings, e.g. ` +
     `"Kill Meta ad set \\"<name>\\" (CPA AED X, ROAS Yx)" and "Scale Meta ad set \\"<name>\\" (CPA AED X, ROAS Yx) +50% budget". ` +
+    `The ad sets are tagged [audience: …]. IF an audience PATTERN is visible (e.g. lookalikes beating broad, retargeting beating interest), state it in strategic_context AND add a tactical step like ` +
+    `"Audience signal: lookalikes 1% beat broad 6.8x — shift broad-UAE budget to lookalike-music expansion." Only when the tags actually support it; if audiences are creative_only/unclear, do not claim an audience pattern. ` +
     `IF a winning sibling segment is listed AND this event underperforms on that channel, ADD one tactical step of the form: ` +
     `"Test [Sibling Name]'s winning [audience/creative]: <named ad/audience>, converting <N×/ROAS> better than our current pool — allocate AED <X> for <Y> days." ` +
     `Cite ACTUAL names + ACTUAL numbers; if no own-segment gap and no sibling segment clearly wins, do NOT invent one (Sacred Rules #9 + #11). ` +

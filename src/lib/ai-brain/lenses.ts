@@ -10,6 +10,7 @@
 import type { EventReport } from "@/src/lib/data/events";
 import { chatJSON, chatText } from "@/src/lib/openrouter";
 import { MASTER_SYSTEM } from "./master-prompt";
+import { audienceTag } from "./audience";
 import type { LensName, LensOutput, Severity, Confidence } from "./types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -32,10 +33,12 @@ export function ownSegmentsStr(report: EventReport, source: "meta" | "google"): 
   if (!seg || (seg.top.length === 0 && seg.bottom.length === 0)) {
     return "no own ad-set breakdown available (insufficient spend or no linked campaigns)";
   }
-  const fmtMeta = (a: { name: string; roas: number | null; cpa: number | null; spend_aed: number; frequency: number | null }) =>
-    `"${a.name}": ROAS ${a.roas === null ? "n/a" : r2(a.roas) + "x"}, CPA ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, spend AED ${r2(a.spend_aed)}, freq ${a.frequency === null ? "n/a" : r2(a.frequency)}`;
-  const fmtGoogle = (a: { name: string; conversions: number | null; cpa: number | null; conversion_rate: number | null; spend_aed: number }) =>
-    `"${a.name}": ${a.conversions ?? 0} conv, cost/conv ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, convRate ${a.conversion_rate === null ? "n/a" : pctn(a.conversion_rate) + "%"}, spend AED ${r2(a.spend_aed)}`;
+  // Audience signal lives in the campaign name (fall back to ad_name/ad_group).
+  const aud = (a: { name: string; campaign: string | null }) => audienceTag(a.campaign || a.name);
+  const fmtMeta = (a: { name: string; campaign: string | null; roas: number | null; cpa: number | null; spend_aed: number; frequency: number | null }) =>
+    `"${a.name}": ROAS ${a.roas === null ? "n/a" : r2(a.roas) + "x"}, CPA ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, spend AED ${r2(a.spend_aed)}, freq ${a.frequency === null ? "n/a" : r2(a.frequency)} [audience: ${aud(a)}]`;
+  const fmtGoogle = (a: { name: string; campaign: string | null; conversions: number | null; cpa: number | null; conversion_rate: number | null; spend_aed: number }) =>
+    `"${a.name}": ${a.conversions ?? 0} conv, cost/conv ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, convRate ${a.conversion_rate === null ? "n/a" : pctn(a.conversion_rate) + "%"}, spend AED ${r2(a.spend_aed)} [audience: ${aud(a)}]`;
   const fmt = source === "meta" ? fmtMeta : fmtGoogle;
   const top = seg.top.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
   const bottom = seg.bottom.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
@@ -107,6 +110,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "Lens 2 — Meta deep dive. Fatigue / CTR / CPA / ROAS vs prior week, vs cluster baseline, vs analog. " +
       "If affinity siblings are running, note audience-overlap read. If a sibling's WINNING SEGMENT (named ad/audience) outperforms this event's Meta equivalent by >50%, flag it by name as a tactical opportunity to TEST on this campaign (never move budget between events). " +
       "When citing this event's OWN ad sets, ALWAYS use the actual ad_name/campaign string from the data. If a top performer's ROAS exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event reallocation, Sacred Rule #9). " +
+      "Each ad set is tagged [audience: …] (lookalike / broad / retargeting / interest / custom / creative_only / unclear). If an AUDIENCE PATTERN emerges (e.g. lookalikes outperforming broad), name it in the diagnosis with the ROAS gap. If a name carries no targeting signal (creative_only/unclear), say so — never invent targeting. " +
       "High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
@@ -126,6 +130,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "Lens 3 — Google deep dive. CPC / CPA band (5-25% of ticket price) / conversion / wasted spend vs cluster + analog. " +
       "If a sibling's WINNING Google segment (named campaign/ad_group) is converting materially better than this event's, flag it by name as a pattern to TEST here (within-event only, never cross-event budget moves). " +
       "When citing this event's OWN ad groups, ALWAYS use the actual campaign/ad_group string. If a top performer's conversions/efficiency exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event, Sacred Rule #9). " +
+      "Ad groups are tagged [audience: …]; if an audience/intent pattern emerges (e.g. concert-intent beating artist-only), name it. No signal in a name = say so, don't invent. " +
       "High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");

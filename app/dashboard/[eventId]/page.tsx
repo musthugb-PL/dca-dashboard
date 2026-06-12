@@ -6,6 +6,8 @@ import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { lensDotClass } from "@/src/lib/lens";
 import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
 import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/types";
+import { getPastDecisionsContext } from "@/src/lib/data/lens5";
+import type { PastDecisions } from "@/src/lib/data/events";
 import DeltaPill from "@/app/components/DeltaPill";
 
 export const dynamic = "force-dynamic";
@@ -97,6 +99,14 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   const meta = report.channels.find((c) => c.source.toLowerCase() === "meta");
   const google = report.channels.find((c) => c.source.toLowerCase() === "google");
   const f = report.funnel.window;
+
+  // Fix 6: past decisions for this event (4 sources, fuzzy name match — same as Lens 5).
+  let pastDecisions: PastDecisions = { items: [], count: 0 };
+  try {
+    pastDecisions = await getPastDecisionsContext(Number(params.eventId), report.event.name || "");
+  } catch {
+    /* decision history is best-effort */
+  }
 
   const cb = report.clusterBaseline;
   const d = report.deltas;
@@ -197,6 +207,9 @@ export default async function EventReportPage({ params }: { params: { eventId: s
             <KpiTile label="Tickets" value={intFmt(report.kpis.tickets_sold)} d={report.deltas?.tickets.pct} goodUp />
           </div>
         </section>
+
+        {/* b2. Past decisions (Fix 6) — collapsed by default, above the lenses */}
+        <PastDecisionsSection pd={pastDecisions} />
 
         {/* c. Six lens sections */}
         <div className="dca-lens-sections">
@@ -339,6 +352,69 @@ function KpiTile({ label, value, d, goodUp }: { label: string; value: string; d?
         <DeltaPill value={d * 100} good={goodUp ? d >= 0 : d <= 0} />
       )}
     </div>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  decisions: "Decision log",
+  weekly_notes: "Weekly note",
+  source_b_notes: "Source B",
+  optimisation_notes: "Optimisation note",
+};
+
+/** Sort key: real dates rank above "Week N" labels; both newest-first. */
+function whenSortKey(when: string | null): number {
+  if (!when) return 0;
+  if (/^\d{4}-\d{2}-\d{2}/.test(when)) {
+    const t = Date.parse(when);
+    if (!Number.isNaN(t)) return t;
+  }
+  const wk = /week\s*(\d+)/i.exec(when);
+  if (wk) return Number(wk[1]);
+  return 0;
+}
+
+/** Fix 6: collapsible "Past decisions on this event" — 4 sources, fuzzy-matched. */
+function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
+  if (pd.count === 0) {
+    return (
+      <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
+        <h2 className="t-title-sm">Past decisions</h2>
+        <p className="t-body-sm-short" style={{ color: "var(--content-secondary)", margin: "var(--spacing-8) 0 0" }}>
+          No past decisions logged for this event yet — start by approving today’s verdict to build the loop.
+        </p>
+      </section>
+    );
+  }
+  const items = [...pd.items].sort((a, b) => whenSortKey(b.when) - whenSortKey(a.when));
+  return (
+    <details className="pl-card pl-card-elevated pl-card-padded dca-history" style={{ marginTop: "var(--spacing-16)" }}>
+      <summary className="dca-history-summary t-body-sm-strong">
+        Past decisions: {pd.count} logged · click to expand
+      </summary>
+      <ul className="dca-timeline">
+        {items.map((it, i) => (
+          <li key={i} className="dca-timeline-item">
+            <div className="dca-timeline-head">
+              <span className="t-body-sm-strong">{it.when ? `Week of ${it.when}` : "Undated"}</span>
+              {it.action && <span className="dca-chip">{it.action}</span>}
+              <span className="dca-chip">
+                {SOURCE_LABEL[it.source] ?? it.source}
+                {it.matched_by === "name" ? " · name-matched" : ""}
+              </span>
+            </div>
+            <p className="dca-timeline-text t-caption">
+              {it.text.length > 200 ? it.text.slice(0, 200) + "…" : it.text}
+            </p>
+            {it.matched_by === "name" && it.event_name && (
+              <p className="t-caption" style={{ color: "var(--content-tertiary)", margin: 0 }}>
+                matched note: “{it.event_name}”
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

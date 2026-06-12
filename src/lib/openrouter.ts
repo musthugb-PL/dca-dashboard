@@ -65,18 +65,49 @@ function extractJson(s: string): string {
   return first >= 0 && last > first ? s.slice(first, last + 1) : s.trim();
 }
 
-/** Chat expecting JSON. Parses to T; on parse failure, retries once with a reminder. */
-export async function chatJSON<T>(args: ChatArgs): Promise<{ data: T; usage: Usage }> {
-  const first = await rawChat(args, true);
+/** Light repair for common model malformations: strip JS-style comments and
+ *  trailing commas before a closing brace/bracket. Runs before a network retry. */
+function repairJson(s: string): string {
+  return s
+    .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+    .replace(/(^|[^:])\/\/[^\n\r]*/g, "$1") // line comments (not URLs after ':')
+    .replace(/,\s*([}\]])/g, "$1"); // trailing commas
+}
+
+/** Try raw parse, then a repaired parse. Returns parsed value or undefined. */
+function tryParse<T>(content: string): T | undefined {
+  const extracted = extractJson(content);
   try {
-    return { data: JSON.parse(extractJson(first.content)) as T, usage: first.usage };
+    return JSON.parse(extracted) as T;
   } catch {
-    const retry = await rawChat(
-      { ...args, user: args.user + "\n\nYour previous reply was not valid JSON. Return ONLY a single valid JSON object, no prose, no markdown fences." },
-      true,
-    );
-    return { data: JSON.parse(extractJson(retry.content)) as T, usage: retry.usage };
+    try {
+      return JSON.parse(repairJson(extracted)) as T;
+    } catch {
+      return undefined;
+    }
   }
+}
+
+/**
+ * Chat expecting JSON. Parses to T with a local repair fallback; on failure,
+ * retries up to TWICE more (3 attempts total) with an escalating reminder.
+ * The structural malformations we see (~2/slot) are non-deterministic, so a
+ * second retry clears nearly all of them without manual per-event re-runs.
+ */
+export async function chatJSON<T>(args: ChatArgs): Promise<{ data: T; usage: Usage }> {
+  const reminders = [
+    "",
+    "\n\nYour previous reply was not valid JSON. Return ONLY a single valid JSON object — no prose, no markdown fences, no comments, no trailing commas.",
+    "\n\nSTILL invalid JSON. Output MUST be one strict JSON object parseable by JSON.parse: double-quoted keys/strings, no comments, no trailing commas, every array element comma-separated.",
+  ];
+  let lastErr = "no attempts made";
+  for (let attempt = 0; attempt < reminders.length; attempt++) {
+    const res = await rawChat({ ...args, user: args.user + reminders[attempt] }, true);
+    const parsed = tryParse<T>(res.content);
+    if (parsed !== undefined) return { data: parsed, usage: res.usage };
+    lastErr = `attempt ${attempt + 1} produced unparseable JSON`;
+  }
+  throw new Error(`chatJSON: ${lastErr} after ${reminders.length} attempts`);
 }
 
 /** Plain text chat (used for Sonar market scan, which returns prose + citations). */
