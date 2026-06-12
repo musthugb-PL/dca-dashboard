@@ -11,6 +11,7 @@ import { getMetaAttribution } from "./meta";
 import { applyCap, summariseCappedBySource, type ChannelDailyRow } from "./cap";
 import { bq, BQ_PROJECT, BQ_DATASET } from "@/lib/bigquery";
 import { getSupabase } from "@/lib/supabase";
+import { isoDate, addDays } from "@/src/lib/slot";
 import type {
   ChannelReport,
   WindowSnapshot,
@@ -19,6 +20,7 @@ import type {
   ClusterBaseline,
   AnalogEvent,
   AffinitySibling,
+  WinningSegment,
 } from "./events";
 
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -118,8 +120,41 @@ export function computeDeltas(cur: WindowSnapshot, prior: WindowSnapshot): WowDe
 }
 
 const priceBand = (price: number) => (price < 100 ? "low" : price < 400 ? "mid" : "high");
+const ADJACENT_BANDS: Record<string, string[]> = { low: ["mid"], mid: ["low", "high"], high: ["mid"] };
 
-/** Resolve a cluster baseline by (event_category × price_band): exact → contains-fallback. */
+// Generic words dropped before token-matching a category (keep distinctive ones
+// like "arabic", "comedy", "desi", "classical", "gaming").
+const CAT_STOPWORDS = new Set(["events", "event", "shows", "show", "and", "the", "live"]);
+function categoryTokens(cat: string): string[] {
+  return Array.from(
+    new Set(
+      cat.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((t) => t.length >= 3 && !CAT_STOPWORDS.has(t)),
+    ),
+  );
+}
+
+type ClusterRow = {
+  event_category: string;
+  price_band: string;
+  cpa_p50: number;
+  ctr_p50: number;
+  roas_p50: number;
+  sample_size: number;
+};
+
+const dbg = (...a: unknown[]) => {
+  if (process.env.LENS_DEBUG === "1") console.log("[cluster]", ...a);
+};
+
+/**
+ * Resolve a cluster baseline with a broad fallback ladder, picking the largest
+ * sample_size among candidates at the first rung that matches:
+ *   1. exact category (ledger OR completed_orders) × target price_band
+ *   2. token-contains (any category token) × target band  ("Arabic Pop" → "Arabic Events")
+ *   3. exact OR token-contains × adjacent band (low↔mid, mid↔high)
+ *   4. token-contains × ANY band  (last resort)
+ * Set LENS_DEBUG=1 to trace category resolution + candidate rows.
+ */
 export async function lookupClusterBaseline(
   eventId: number,
   avgTicketPrice: number,
@@ -127,51 +162,91 @@ export async function lookupClusterBaseline(
   const sb = getSupabase();
   const band = priceBand(avgTicketPrice);
 
-  let category = "";
+  // Resolve category from three sources, in cluster-key priority order:
+  //   1. ledger event_category  (Sacred Rule #8 — THE cluster key)
+  //   2. dca_v_events.categories (authoritative categories field; NOT marketing_tags)
+  //   3. completed_orders.category (generic, e.g. "Concerts" — last resort)
+  // All non-empty values seed the ladder; maxSample then prefers the best row.
+  let ledgerCat = "";
   const led = await sb
     .from("dca_campaign_ledger")
     .select("event_category")
     .eq("event_id", String(eventId))
     .maybeSingle();
-  category = String(led.data?.event_category ?? "").trim();
-  if (!category) {
+  ledgerCat = String(led.data?.event_category ?? "").trim();
+
+  let eventsCat = "";
+  const ev = await sb
+    .from("dca_v_events")
+    .select("categories")
+    .eq("event_id", String(eventId))
+    .maybeSingle();
+  eventsCat = String(ev.data?.categories ?? "").trim();
+
+  let ordersCat = "";
+  try {
     const rows = await bq.query<{ category: string }>(
       `SELECT ANY_VALUE(category) AS category FROM \`${BQ_PROJECT}.${BQ_DATASET}.completed_orders\` WHERE id_event = @eventId`,
       { eventId },
     );
-    category = String(rows[0]?.category ?? "").trim();
+    ordersCat = String(rows[0]?.category ?? "").trim();
+  } catch {
+    /* completed_orders category is best-effort */
   }
+
+  const cats = Array.from(new Set([ledgerCat, eventsCat, ordersCat].filter(Boolean)));
+  const eventCategory = ledgerCat || eventsCat || ordersCat;
+  dbg(`event ${eventId}: ledgerCat=${JSON.stringify(ledgerCat)} eventsCat=${JSON.stringify(eventsCat)} ordersCat=${JSON.stringify(ordersCat)} band=${band} (avgPrice ${avgTicketPrice})`);
 
   const empty: ClusterBaseline = {
-    matched: false, strategy: null, event_category: category, price_band: band,
+    matched: false, strategy: null, event_category: eventCategory, price_band: band,
     cluster_category: null, cpa_p50: null, ctr_p50: null, roas_p50: null, sample_size: null,
   };
-  if (!category) return empty;
+  if (!cats.length) {
+    dbg("no category resolved → empty");
+    return empty;
+  }
 
+  // Fetch the whole (small) baseline table once; match in memory.
   const { data } = await sb
     .from("dca_cluster_baselines")
-    .select("event_category,cpa_p50,ctr_p50,roas_p50,sample_size")
-    .eq("price_band", band);
-  const rows = (data ?? []) as {
-    event_category: string; cpa_p50: number; ctr_p50: number; roas_p50: number; sample_size: number;
-  }[];
+    .select("event_category,price_band,cpa_p50,ctr_p50,roas_p50,sample_size");
+  const rows = (data ?? []) as ClusterRow[];
+  if (!rows.length) return empty;
 
-  const lc = category.toLowerCase();
-  let match = rows.find((r) => r.event_category.trim().toLowerCase() === lc);
-  let strategy: ClusterBaseline["strategy"] = match ? "exact" : null;
-  if (!match) {
-    const candidates = rows
-      .filter((r) => r.event_category.toLowerCase().includes(lc))
-      .sort((a, b) => (b.sample_size ?? 0) - (a.sample_size ?? 0));
-    match = candidates[0];
-    if (match) strategy = "contains";
+  const lcCats = cats.map((c) => c.trim().toLowerCase());
+  const tokens = Array.from(new Set(cats.flatMap(categoryTokens)));
+  dbg(`tokens: [${tokens.join(", ")}]`);
+
+  const exactIn = (b: string) =>
+    rows.filter((r) => r.price_band === b && lcCats.includes(r.event_category.trim().toLowerCase()));
+  const tokenIn = (b: string) =>
+    rows.filter((r) => r.price_band === b && tokens.some((t) => r.event_category.toLowerCase().includes(t)));
+  const maxSample = (rs: ClusterRow[]) =>
+    rs.length ? rs.reduce((a, c) => ((c.sample_size ?? 0) > (a.sample_size ?? 0) ? c : a)) : null;
+
+  const rungs: [string, () => ClusterRow[]][] = [
+    ["exact", () => exactIn(band)],
+    ["contains", () => tokenIn(band)],
+    ["adjacent-band", () => ADJACENT_BANDS[band].flatMap((b) => [...exactIn(b), ...tokenIn(b)])],
+    ["category-any-band", () => [...tokenIn("low"), ...tokenIn("mid"), ...tokenIn("high")]],
+  ];
+
+  for (const [label, fn] of rungs) {
+    const cands = fn();
+    dbg(`rung "${label}": ${cands.length} candidate(s)`, cands.map((c) => `${c.event_category}/${c.price_band}(n=${c.sample_size})`).join(" | "));
+    const m = maxSample(cands);
+    if (m) {
+      dbg(`PICK ${m.event_category}/${m.price_band} n=${m.sample_size} via "${label}"`);
+      return {
+        matched: true, strategy: label, event_category: eventCategory, price_band: band,
+        cluster_category: m.event_category, cpa_p50: m.cpa_p50, ctr_p50: m.ctr_p50,
+        roas_p50: m.roas_p50, sample_size: m.sample_size,
+      };
+    }
   }
-  if (!match) return empty;
-  return {
-    matched: true, strategy, event_category: category, price_band: band,
-    cluster_category: match.event_category, cpa_p50: match.cpa_p50, ctr_p50: match.ctr_p50,
-    roas_p50: match.roas_p50, sample_size: match.sample_size,
-  };
+  dbg("no match across all rungs → empty");
+  return empty;
 }
 
 /** Top-3 similar events + each one's metrics for the same window. */
@@ -218,11 +293,112 @@ export async function getAnalogs(
 }
 
 /**
+ * A sibling's top-performing segments over the last 14 days (Fix 3A).
+ * Meta: group dca_v_meta_ads by (campaign, ad_name), ROAS = purchase_value_aed /
+ * spend_aed, keep spend > 100 AED, top by ROAS. Google: group dca_v_google_ads
+ * by (campaign, ad_group), no revenue → rank by conversions. Event linkage is
+ * the campaign-name convention `_<eventId>_` (Meta) / contains <eventId> (Google).
+ */
+async function getWinningSegments(
+  siblingId: number,
+  dateTo: string,
+  metaMax = 3,
+  googleMax = 2,
+): Promise<WinningSegment[]> {
+  const sb = getSupabase();
+  const from = isoDate(addDays(new Date(dateTo + "T00:00:00"), -14));
+  const out: WinningSegment[] = [];
+
+  // --- Meta (real ROAS) ---
+  try {
+    const { data } = await sb
+      .from("dca_v_meta_ads")
+      .select("campaign,ad_name,spend_aed,purchase_value_aed,purchases,clicks,impressions")
+      .ilike("campaign", `*_${siblingId}_*`)
+      .gte("date", from)
+      .lte("date", dateTo)
+      .limit(2000);
+    type Agg = { spend: number; rev: number; purch: number; clicks: number; impr: number; campaign: string; ad_name: string };
+    const groups = new Map<string, Agg>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const campaign = String(r.campaign ?? "");
+      const ad_name = String(r.ad_name ?? "");
+      const k = campaign + "||" + ad_name;
+      const g = groups.get(k) ?? { spend: 0, rev: 0, purch: 0, clicks: 0, impr: 0, campaign, ad_name };
+      g.spend += Number(r.spend_aed ?? 0);
+      g.rev += Number(r.purchase_value_aed ?? 0);
+      g.purch += Number(r.purchases ?? 0);
+      g.clicks += Number(r.clicks ?? 0);
+      g.impr += Number(r.impressions ?? 0);
+      groups.set(k, g);
+    }
+    const meta = Array.from(groups.values())
+      .filter((g) => g.spend > 100)
+      .map((g) => ({
+        source: "meta" as const,
+        ad_name: g.ad_name || null,
+        campaign: g.campaign || null,
+        roas: g.spend > 0 ? g.rev / g.spend : null,
+        spend_aed: g.spend,
+        conversions: g.purch,
+        ctr: g.impr > 0 ? g.clicks / g.impr : null,
+      }))
+      .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0))
+      .slice(0, metaMax);
+    out.push(...meta);
+  } catch {
+    /* meta segments best-effort */
+  }
+
+  // --- Google (no revenue → rank by conversions) ---
+  try {
+    const { data } = await sb
+      .from("dca_v_google_ads")
+      .select("campaign,ad_group,spend_aed,conversions,clicks,impressions")
+      .ilike("campaign", `*${siblingId}*`)
+      .gte("date", from)
+      .lte("date", dateTo)
+      .limit(2000);
+    type Agg = { spend: number; conv: number; clicks: number; impr: number; campaign: string; ad_group: string };
+    const groups = new Map<string, Agg>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const campaign = String(r.campaign ?? "");
+      const ad_group = String(r.ad_group ?? "");
+      const k = campaign + "||" + ad_group;
+      const g = groups.get(k) ?? { spend: 0, conv: 0, clicks: 0, impr: 0, campaign, ad_group };
+      g.spend += Number(r.spend_aed ?? 0);
+      g.conv += Number(r.conversions ?? 0);
+      g.clicks += Number(r.clicks ?? 0);
+      g.impr += Number(r.impressions ?? 0);
+      groups.set(k, g);
+    }
+    const google = Array.from(groups.values())
+      .filter((g) => g.spend > 100 && g.conv > 0)
+      .map((g) => ({
+        source: "google" as const,
+        ad_name: g.ad_group || null,
+        campaign: g.campaign || null,
+        roas: null,
+        spend_aed: g.spend,
+        conversions: g.conv,
+        ctr: g.impr > 0 ? g.clicks / g.impr : null,
+      }))
+      .sort((a, b) => (b.conversions ?? 0) - (a.conversions ?? 0))
+      .slice(0, googleMax);
+    out.push(...google);
+  } catch {
+    /* google segments best-effort */
+  }
+
+  return out;
+}
+
+/**
  * CLAUDE.md reference-data priority #3: affinity siblings CURRENTLY RUNNING.
  * Top co-purchase neighbours from dca_v_affinity, filtered to ledger
- * status='running', with each one's same-window metrics. Empty array when the
- * event has no affinity graph yet (new events) — callers / prompts must say so,
- * never invent (Sacred Rule #11).
+ * status='running', with each one's same-window metrics + winning segments.
+ * Empty array when the event has no affinity graph yet (new events) — callers /
+ * prompts must say so, never invent (Sacred Rule #11).
  */
 export async function getAffinitySiblings(
   eventId: number,
@@ -262,7 +438,10 @@ export async function getAffinitySiblings(
   for (const c of ordered) {
     const sid = String(c.id_event_2);
     try {
-      const snap = await computeSnapshot(c.id_event_2, dateFrom, dateTo);
+      const [snap, winning_segments] = await Promise.all([
+        computeSnapshot(c.id_event_2, dateFrom, dateTo),
+        getWinningSegments(c.id_event_2, dateTo),
+      ]);
       const meta = snap.channels.find((ch) => ch.source.toLowerCase() === "meta") ?? null;
       const google = snap.channels.find((ch) => ch.source.toLowerCase() === "google") ?? null;
       out.push({
@@ -275,6 +454,7 @@ export async function getAffinitySiblings(
         roas: snap.kpis.total_roas,
         meta_ctr: meta ? meta.ctr : null,
         google_ctr: google ? google.ctr : null,
+        winning_segments,
       });
     } catch {
       /* skip siblings that error in the window */

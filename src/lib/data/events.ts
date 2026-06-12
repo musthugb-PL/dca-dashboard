@@ -166,7 +166,8 @@ export type WowDeltas = {
 
 export type ClusterBaseline = {
   matched: boolean;
-  strategy: "exact" | "contains" | null;
+  // "exact" | "contains" | "adjacent-band" | "category-any-band" | null
+  strategy: string | null;
   event_category: string; // the event's category used for lookup
   price_band: string;
   cluster_category: string | null; // the matched cluster's category
@@ -190,9 +191,27 @@ export type AnalogEvent = {
 };
 
 /**
+ * A high-performing ad set / audience / creative borrowed from a sibling, for
+ * "test this pattern on YOUR campaign" recommendations (Sacred Rule #9: within-
+ * event audience insight, never cross-event budget reallocation).
+ * Meta has revenue → real ROAS; Google view has no revenue → roas stays null,
+ * ranked by conversions instead.
+ */
+export type WinningSegment = {
+  source: "meta" | "google";
+  ad_name: string | null;
+  campaign: string | null; // audience is inferred from the campaign name
+  roas: number | null; // meta: purchase_value_aed / spend_aed; google: null
+  spend_aed: number;
+  conversions: number | null; // meta purchases / google conversions
+  ctr: number | null;
+};
+
+/**
  * CLAUDE.md reference-data priority #3: affinity siblings CURRENTLY RUNNING.
  * Co-purchase neighbours (dca_v_affinity) filtered to ledger status='running',
- * with each sibling's same-window metrics (same shape as AnalogEvent).
+ * with each sibling's same-window metrics (same shape as AnalogEvent) PLUS their
+ * top-performing segments (Fix 3) for borrow-the-winner recommendations.
  */
 export type AffinitySibling = {
   event_id: string;
@@ -204,6 +223,7 @@ export type AffinitySibling = {
   roas: number;
   meta_ctr: number | null;
   google_ctr: number | null;
+  winning_segments: WinningSegment[]; // top 2-3 Meta + Google segments (last 14d)
 };
 
 /** One past-decision/optimisation note matched to this event (Lens 5). */

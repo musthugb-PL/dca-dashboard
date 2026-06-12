@@ -181,6 +181,16 @@
 .dca-delta--up   { background: var(--accent-success-light); color: var(--accent-success); }
 .dca-delta--down { background: var(--accent-alert-light);   color: var(--accent-alert); }
 
+/* Cluster-comparison pill on lens metric tiles (P2.2 Fix 2): N.Nx cluster */
+.dca-bench {
+  display: inline-flex; align-items: center; white-space: nowrap;
+  font-size: var(--font-size-xs); line-height: var(--font-line-height-2xs);
+  font-weight: var(--font-weight-medium); margin-top: var(--spacing-2);
+}
+.dca-bench--good { color: var(--accent-success); }
+.dca-bench--mid  { color: var(--accent-caution); }
+.dca-bench--bad  { color: var(--accent-alert); }
+
 /* 2. AI verb chip + lens window get a touch of purple accent */
 .dca-ai-verb { color: var(--poodle-40); }
 

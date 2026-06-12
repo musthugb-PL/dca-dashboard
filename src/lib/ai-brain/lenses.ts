@@ -26,6 +26,22 @@ function analogStr(report: EventReport): string {
     .map((a) => `${a.name} (#${a.rank}): ROAS ${r2(a.roas)}x, MetaCTR ${a.meta_ctr === null ? "n/a" : pctn(a.meta_ctr) + "%"}, GoogleCTR ${a.google_ctr === null ? "n/a" : pctn(a.google_ctr) + "%"}`)
     .join(" | ");
 }
+export function segmentsStr(report: EventReport): string {
+  const sibs = report.affinitySiblings ?? [];
+  const lines: string[] = [];
+  for (const s of sibs) {
+    for (const w of s.winning_segments ?? []) {
+      const perf =
+        w.source === "meta"
+          ? `ROAS ${w.roas === null ? "n/a" : r2(w.roas) + "x"}, ${w.conversions ?? 0} purch`
+          : `${w.conversions ?? 0} conv`;
+      lines.push(
+        `${s.name || s.event_id} → [${w.source}] ${w.ad_name ?? "?"} (audience: ${w.campaign ?? "?"}): ${perf}, CTR ${w.ctr === null ? "n/a" : pctn(w.ctr) + "%"}, spend AED ${r2(w.spend_aed)}`,
+      );
+    }
+  }
+  return lines.length ? lines.join("\n") : "no clearly-winning sibling segments (or none running)";
+}
 function siblingsStr(report: EventReport): string {
   if (!report.affinitySiblings?.length) return "none currently running";
   return report.affinitySiblings
@@ -47,7 +63,10 @@ const SCHEMA =
   `"diagnosis_bullets": [<2-3 atomic cited strings>], "cluster_benchmark_used": <string>, ` +
   `"analog_event_cited": <string>, "confidence": "high"|"medium"|"low"}. ` +
   `Scoring: 0-29 green (healthy), 30-60 yellow (contributing factor), 61-100 red (primary cause). ` +
-  `Every bullet must cite a number from the data; if you lack data for a point, write "no data for <x>".`;
+  `Every bullet must cite a number from the data; if you lack data for a point, write "no data for <x>". ` +
+  `LEAD the FIRST diagnosis bullet with the strongest benchmark comparison available — cluster baseline, WoW delta, OR an analog/sibling citation — whichever has the most-citable gap, in the form ` +
+  `"CTR 3.21% is 47% below the Arabic Events/mid cluster (6.0%, n=111)" or "ROAS 8.3x lags Atif Aslam analog (16.4x) by 50%", NOT "CTR is dropping". ` +
+  `If no benchmark data exists at all, say so plainly in the first bullet.`;
 
 type LensCfg = { window: string; rubric: string; data: (r: EventReport) => Record<string, unknown> };
 
@@ -70,7 +89,8 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
     window: "current 7d vs prior 7d",
     rubric:
       "Lens 2 — Meta deep dive. Fatigue / CTR / CPA / ROAS vs prior week, vs cluster baseline, vs analog. " +
-      "If affinity siblings are running, note audience-overlap read (e.g. 'sibling X running at CTR __'). High score = Meta is the primary cause.",
+      "If affinity siblings are running, note audience-overlap read. If a sibling's WINNING SEGMENT (named ad/audience) outperforms this event's Meta equivalent by >50%, flag it by name as a tactical opportunity to TEST on this campaign (never move budget between events). " +
+      "High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
       return {
@@ -78,6 +98,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
         meta_ctr_wow: r.deltas?.meta_ctr ? { cur_pct: pctn(r.deltas.meta_ctr.current), prior_pct: pctn(r.deltas.meta_ctr.prior) } : null,
         meta_cpa_wow: r.deltas?.meta_cpa ? { cur_aed: r2(r.deltas.meta_cpa.current), prior_aed: r2(r.deltas.meta_cpa.prior) } : null,
         affinity_siblings_running: siblingsStr(r),
+        sibling_winning_segments: segmentsStr(r),
       };
     },
   },
@@ -85,7 +106,8 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
     window: "current 7d vs prior 7d",
     rubric:
       "Lens 3 — Google deep dive. CPC / CPA band (5-25% of ticket price) / conversion / wasted spend vs cluster + analog. " +
-      "If affinity siblings are running, use their Google read for audience-overlap context. High score = Google is the primary cause.",
+      "If a sibling's WINNING Google segment (named campaign/ad_group) is converting materially better than this event's, flag it by name as a pattern to TEST here (within-event only, never cross-event budget moves). " +
+      "High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");
       return {
@@ -93,6 +115,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
         ticket_price_aed: r2(r.kpis.avg_ticket_price),
         google_cpa_wow: r.deltas?.google_cpa ? { cur_aed: r2(r.deltas.google_cpa.current), prior_aed: r2(r.deltas.google_cpa.prior) } : null,
         affinity_siblings_running: siblingsStr(r),
+        sibling_winning_segments: segmentsStr(r),
       };
     },
   },

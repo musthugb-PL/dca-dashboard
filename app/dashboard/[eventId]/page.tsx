@@ -10,7 +10,26 @@ import DeltaPill from "@/app/components/DeltaPill";
 
 export const dynamic = "force-dynamic";
 
-type Tile = { label: string; value: string };
+type Cmp = { ratio: number; cls: "good" | "mid" | "bad" };
+type Wow = { pct: number; goodUp: boolean };
+type Tile = { label: string; value: string; wow?: Wow; cluster?: Cmp };
+
+/** value vs cluster p50 → ratio + colour band (±15% = caution). */
+function clusterCmp(
+  cur: number | null | undefined,
+  base: number | null | undefined,
+  higherIsBetter: boolean,
+): Cmp | undefined {
+  if (cur == null || !base) return undefined;
+  const ratio = cur / base;
+  const cls: Cmp["cls"] = higherIsBetter
+    ? ratio >= 1.15 ? "good" : ratio <= 0.85 ? "bad" : "mid"
+    : ratio <= 0.85 ? "good" : ratio >= 1.15 ? "bad" : "mid";
+  return { ratio, cls };
+}
+function wowCmp(d: { pct: number } | null | undefined, goodUp: boolean): Wow | undefined {
+  return d ? { pct: d.pct, goodUp } : undefined;
+}
 
 export default async function EventReportPage({ params }: { params: { eventId: string } }) {
   const today = new Date();
@@ -79,23 +98,28 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   const google = report.channels.find((c) => c.source.toLowerCase() === "google");
   const f = report.funnel.window;
 
-  // ---- per-lens tile sets (real where the data layer reaches) ----
+  const cb = report.clusterBaseline;
+  const d = report.deltas;
+
+  // ---- per-lens tile sets (real metrics + WoW + cluster comparison) ----
+  // Note: overall ROAS (sales/spend) is NOT compared to the cluster's marketing
+  // ROAS p50 — different metrics (org "don't conflate" rule); WoW only here.
   const internalTiles: Tile[] = [
-    { label: "Sales", value: aed(report.kpis.total_sales_aed) },
-    { label: "Tickets", value: intFmt(report.kpis.tickets_sold) },
+    { label: "Sales", value: aed(report.kpis.total_sales_aed), wow: wowCmp(d?.total_sales, true) },
+    { label: "Tickets", value: intFmt(report.kpis.tickets_sold), wow: wowCmp(d?.tickets, true) },
     { label: "Orders", value: intFmt(report.sales.orders_count) },
     { label: "Avg price", value: aed(report.kpis.avg_ticket_price) },
     { label: "Avg tix/order", value: report.kpis.avg_tickets_per_order.toFixed(2) },
-    { label: "ROAS", value: roasFmt(report.kpis.total_roas) },
+    { label: "ROAS (total)", value: roasFmt(report.kpis.total_roas), wow: wowCmp(d?.total_roas, true) },
   ];
   const metaTiles: Tile[] = meta
     ? [
         { label: "Spend", value: aed(meta.spend) },
         { label: "Tickets", value: intFmt(meta.tickets) },
         { label: "Revenue", value: aed(meta.revenue) },
-        { label: "CPA", value: aed(meta.cpa) },
-        { label: "ROAS", value: roasFmt(meta.roas) },
-        { label: "CTR", value: pctFmt(meta.ctr) },
+        { label: "CPA", value: aed(meta.cpa), wow: wowCmp(d?.meta_cpa, false), cluster: clusterCmp(meta.cpa, cb?.cpa_p50, false) },
+        { label: "ROAS", value: roasFmt(meta.roas), cluster: clusterCmp(meta.roas, cb?.roas_p50, true) },
+        { label: "CTR", value: pctFmt(meta.ctr), wow: wowCmp(d?.meta_ctr, true), cluster: clusterCmp(meta.ctr, cb?.ctr_p50, true) },
       ]
     : [{ label: "Meta", value: "no spend in window" }];
   const googleTiles: Tile[] = google
@@ -103,9 +127,9 @@ export default async function EventReportPage({ params }: { params: { eventId: s
         { label: "Spend", value: aed(google.spend) },
         { label: "Tickets", value: intFmt(google.tickets) },
         { label: "Revenue", value: aed(google.revenue) },
-        { label: "CPA", value: aed(google.cpa) },
-        { label: "ROAS", value: roasFmt(google.roas) },
-        { label: "CTR", value: pctFmt(google.ctr) },
+        { label: "CPA", value: aed(google.cpa), wow: wowCmp(d?.google_cpa, false), cluster: clusterCmp(google.cpa, cb?.cpa_p50, false) },
+        { label: "ROAS", value: roasFmt(google.roas), cluster: clusterCmp(google.roas, cb?.roas_p50, true) },
+        { label: "CTR", value: pctFmt(google.ctr), cluster: clusterCmp(google.ctr, cb?.ctr_p50, true) },
       ]
     : [{ label: "Google", value: "no spend in window" }];
   const ga4Tiles: Tile[] = [
@@ -193,10 +217,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
                 </div>
                 <div className="dca-tiles">
                   {lens.tiles.map((t, i) => (
-                    <div key={i} className="dca-tile">
-                      <span className="dca-tile-label t-caption">{t.label}</span>
-                      <span className="dca-tile-value t-body-sm-strong">{t.value}</span>
-                    </div>
+                    <MetricTile key={i} t={t} />
                   ))}
                 </div>
                 {lo && lo.diagnosis_bullets.length > 0 ? (
@@ -316,6 +337,27 @@ function KpiTile({ label, value, d, goodUp }: { label: string; value: string; d?
       <span className="dca-tile-value t-title-sm">{value}</span>
       {d !== undefined && (
         <DeltaPill value={d * 100} good={goodUp ? d >= 0 : d <= 0} />
+      )}
+    </div>
+  );
+}
+
+/** Lens metric tile: value + optional WoW pill + optional vs-cluster pill. */
+function MetricTile({ t }: { t: Tile }) {
+  return (
+    <div className="dca-tile">
+      <span className="dca-tile-label t-caption">{t.label}</span>
+      <span className="dca-tile-value t-body-sm-strong">{t.value}</span>
+      {t.wow && (
+        <DeltaPill
+          value={t.wow.pct * 100}
+          good={t.wow.goodUp ? t.wow.pct >= 0 : t.wow.pct <= 0}
+        />
+      )}
+      {t.cluster && (
+        <span className={`dca-bench dca-bench--${t.cluster.cls}`}>
+          {t.cluster.ratio.toFixed(2)}× cluster
+        </span>
       )}
     </div>
   );
