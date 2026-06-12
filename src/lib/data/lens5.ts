@@ -29,6 +29,9 @@ const STOPWORDS = new Set([
   "dubai", "abu", "dhabi", "sharjah", "riyadh", "jeddah", "doha", "manama", "muscat",
   "opera", "arena", "etihad", "coca", "cola", "hall", "theatre", "theater", "stadium",
   "park", "club", "lounge", "centre", "center", "2023", "2024", "2025", "2026", "2027",
+  // promoter / filler words — generic, cause false matches (e.g. "Live Nation"
+  // → "nation" matched "Zayed National Museum"):
+  "nation", "middle", "east", "entertainment", "feat", "featuring", "presents", "presented",
 ]);
 
 /** 2+ char non-stopword, non-pure-digit tokens of an event name (lowercased). */
@@ -44,10 +47,11 @@ function nameTokens(name: string): string[] {
   );
 }
 
+/** Whole-word token match (not substring) so "nation" doesn't hit "National". */
 function nameMatches(tokens: string[], storedName: string | null): boolean {
   if (!storedName) return false;
   const s = storedName.toLowerCase();
-  return tokens.some((t) => s.includes(t));
+  return tokens.some((t) => new RegExp(`\\b${t}\\b`).test(s));
 }
 
 const trim = (s: unknown, n = 300): string =>
