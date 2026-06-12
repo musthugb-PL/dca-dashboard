@@ -179,7 +179,7 @@ async function runHaikuLens(lens: Exclude<LensName, "market">, report: EventRepo
     `${cfg.rubric}\n\nEVENT: ${eventName}\nWINDOW: ${cfg.window}\n` +
     `DATA: ${JSON.stringify(cfg.data(report))}\n` +
     `CLUSTER BASELINE: ${clusterStr(report)}\nANALOGS: ${analogStr(report)}\n\n${SCHEMA}`;
-  const { data } = await chatJSON<Partial<LensOutput>>({ model: "haiku", system: MASTER_SYSTEM, user, maxTokens: 700 });
+  const { data } = await chatJSON<Partial<LensOutput>>({ model: "haiku", system: MASTER_SYSTEM, user, maxTokens: 1000 });
   return coerce(lens, data);
 }
 
@@ -201,7 +201,7 @@ async function runMarketLens(report: EventReport, eventName: string): Promise<Le
       `Only cite factors actually present in the scan.\n\n` +
       `CURRENTLY-RUNNING AFFINITY SIBLINGS (competitive context — same audience, live now): ${siblingsStr(report)}\n\n` +
       `MARKET SCAN:\n${scan.content}\n\n${SCHEMA}`,
-    maxTokens: 600,
+    maxTokens: 1000,
   });
   return coerce("market", data);
 }
