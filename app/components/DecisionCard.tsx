@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReviewCard, LensSeverity } from "@/src/lib/data/dashboard";
 import { aed, intFmt, roasFmt } from "@/src/lib/format";
 import { LENS_NAMES } from "@/src/lib/lens";
+import { cardReason } from "@/src/lib/ai-brain/summary";
 
 function dotClassForSeverity(sev: LensSeverity | undefined): string {
   if (sev === "red") return "dca-lens-dot--red";
@@ -28,9 +29,12 @@ function StatusPill({ status }: { status: string | null }) {
 }
 
 export default function DecisionCard({ card }: { card: ReviewCard }) {
-  const { row, primaryEventId, daysSinceLaunch, report, error } = card;
+  const { row, primaryEventId, daysSinceLaunch, report, error, analysis } = card;
   const ids = row.event_ids ?? [primaryEventId];
   const isFestival = ids.length > 1;
+
+  const verb = analysis?.verdict.recommended_action ?? null;
+  const reason = analysis ? cardReason(analysis) : null;
 
   const eventRef = isFestival
     ? `Landing page ${ids[0]} + ${ids.length - 1} more`
@@ -67,10 +71,21 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
         <span>{eventRef}</span>
       </div>
 
-      {/* AI brain placeholders (P2.2) */}
+      {/* AI brain summary (P2.2): recommended action verb + one-line reason */}
       <div className="dca-ai-row">
-        <span className="dca-ai-verb">AI: pending P2.2</span>
-        <span className="dca-ai-reason t-caption">Diagnosis pending P2.2</span>
+        {verb ? (
+          <>
+            <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()}`}>{verb}</span>
+            <span className="dca-ai-reason t-caption">
+              {reason ?? "No diagnosis bullet returned"}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="dca-ai-verb dca-ai-verb--pending">Not analysed</span>
+            <span className="dca-ai-reason t-caption">Run the AI brain for this slot</span>
+          </>
+        )}
       </div>
 
       {/* Stats grid */}

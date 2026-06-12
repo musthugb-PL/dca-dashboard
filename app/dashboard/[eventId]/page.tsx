@@ -4,6 +4,8 @@ import { getSupabase } from "@/lib/supabase";
 import { isoDate, addDays, daysSince } from "@/src/lib/slot";
 import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { lensDotClass } from "@/src/lib/lens";
+import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
+import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/types";
 import DeltaPill from "@/app/components/DeltaPill";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +27,15 @@ export default async function EventReportPage({ params }: { params: { eventId: s
     });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+  }
+
+  // Persisted AI-brain analysis (latest for this event, any slot). Read-only;
+  // the brain is run out-of-band (smoke script / slot run), not on page load.
+  let analysis: BrainAnalysis | null = null;
+  try {
+    analysis = await getLatestBrainAnalysis(params.eventId);
+  } catch {
+    /* analysis overlay is best-effort — page still renders the data layer */
   }
 
   // Ledger row (manager / start date / festival ids) — header context.
@@ -103,18 +114,20 @@ export default async function EventReportPage({ params }: { params: { eventId: s
     { label: "Checkout", value: intFmt(f.users_with_checkout) },
     { label: "Purchase", value: intFmt(f.users_with_purchase) },
   ];
-  const pendingTiles: Tile[] = [
-    { label: "—", value: "pending P2.2" },
-    { label: "—", value: "pending P2.2" },
-  ];
+  const narrativeTiles: Tile[] = [{ label: "Source", value: "AI narrative below" }];
 
-  const LENSES: { name: string; window: string; tiles: Tile[] }[] = [
-    { name: "Internal", window: "3d vs prior 3d", tiles: internalTiles },
-    { name: "Meta", window: "7d vs T-7", tiles: metaTiles },
-    { name: "Google", window: "7d vs T-7", tiles: googleTiles },
-    { name: "GA4", window: "7d vs T-7", tiles: ga4Tiles },
-    { name: "Last week", window: "last 4 weeks", tiles: pendingTiles },
-    { name: "Market", window: "past 7d + next 14d", tiles: pendingTiles },
+  // Lens key → persisted lens output (if the brain has been run for this event).
+  const lensByKey = new Map<LensName, LensOutput>(
+    (analysis?.lenses ?? []).map((l) => [l.lens, l]),
+  );
+
+  const LENSES: { name: string; key: LensName; window: string; tiles: Tile[] }[] = [
+    { name: "Internal", key: "internal", window: "3d vs prior 3d", tiles: internalTiles },
+    { name: "Meta", key: "meta", window: "7d vs T-7", tiles: metaTiles },
+    { name: "Google", key: "google", window: "7d vs T-7", tiles: googleTiles },
+    { name: "GA4", key: "ga4", window: "7d vs T-7", tiles: ga4Tiles },
+    { name: "Last week", key: "last_week", window: "last 4 weeks", tiles: narrativeTiles },
+    { name: "Market", key: "market", window: "past 7d + next 14d", tiles: narrativeTiles },
   ];
 
   return (
@@ -163,58 +176,108 @@ export default async function EventReportPage({ params }: { params: { eventId: s
 
         {/* c. Six lens sections */}
         <div className="dca-lens-sections">
-          {LENSES.map((lens) => (
-            <section key={lens.name} className="pl-card pl-card-elevated pl-card-padded">
-              <div className="dca-lens-head">
-                <span className={`dca-lens-dot ${lensDotClass(null)}`} aria-hidden />
-                <h2 className="t-title-sm">{lens.name}</h2>
-                <span className="dca-lens-window t-caption">{lens.window}</span>
-              </div>
-              <div className="dca-tiles">
-                {lens.tiles.map((t, i) => (
-                  <div key={i} className="dca-tile">
-                    <span className="dca-tile-label t-caption">{t.label}</span>
-                    <span className="dca-tile-value t-body-sm-strong">{t.value}</span>
-                  </div>
-                ))}
-              </div>
-              <ul className="dca-diag t-caption">
-                <li>Diagnosis (P2.2 pending)</li>
-                <li>Diagnosis (P2.2 pending)</li>
-              </ul>
-              <p className="dca-ref-line t-caption">{clusterLine(report)}</p>
-              <p className="dca-ref-line t-caption">{analogLine(report, lens.name)}</p>
-            </section>
-          ))}
+          {LENSES.map((lens) => {
+            const lo = lensByKey.get(lens.key);
+            const score = lo ? lo.lens_score : null;
+            return (
+              <section key={lens.name} className="pl-card pl-card-elevated pl-card-padded">
+                <div className="dca-lens-head">
+                  <span className={`dca-lens-dot ${lensDotClass(score)}`} aria-hidden />
+                  <h2 className="t-title-sm">{lens.name}</h2>
+                  {lo && (
+                    <span className="dca-chip">
+                      score {lo.lens_score} · {lo.confidence}
+                    </span>
+                  )}
+                  <span className="dca-lens-window t-caption">{lens.window}</span>
+                </div>
+                <div className="dca-tiles">
+                  {lens.tiles.map((t, i) => (
+                    <div key={i} className="dca-tile">
+                      <span className="dca-tile-label t-caption">{t.label}</span>
+                      <span className="dca-tile-value t-body-sm-strong">{t.value}</span>
+                    </div>
+                  ))}
+                </div>
+                {lo && lo.diagnosis_bullets.length > 0 ? (
+                  <ul className="dca-diag t-caption">
+                    {lo.diagnosis_bullets.map((b, i) => (
+                      <li key={i}>{b}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <ul className="dca-diag t-caption">
+                    <li>{analysis ? "No diagnosis bullets returned for this lens" : "Not analysed yet — run the AI brain"}</li>
+                  </ul>
+                )}
+                <p className="dca-ref-line t-caption">
+                  Cluster: {lo ? lo.cluster_benchmark_used : clusterLine(report)}
+                </p>
+                <p className="dca-ref-line t-caption">
+                  Analog: {lo ? lo.analog_event_cited : analogLine(report, lens.name)}
+                </p>
+              </section>
+            );
+          })}
         </div>
 
         {/* d. Verdict */}
         <section className="pl-card pl-card-elevated pl-card-padded dca-verdict">
           <h2 className="t-title-base">Verdict</h2>
-          <div className="dca-verdict-action">
-            <span className="dca-ai-verb">Recommended action: PENDING P2.2</span>
-          </div>
 
-          <div className="dca-checklist">
-            {[1, 2, 3].map((n) => (
-              <label key={n} className="dca-check-row t-body-sm-short">
-                <input type="checkbox" disabled />
-                <span>Step {n} — pending P2.2</span>
-              </label>
-            ))}
-          </div>
+          {analysis ? (
+            <>
+              <div className="dca-verdict-action">
+                <span className={`dca-ai-verb dca-ai-verb--${analysis.verdict.recommended_action.toLowerCase()}`}>
+                  {analysis.verdict.recommended_action}
+                </span>
+                <span className="dca-lens-window t-caption">
+                  {verdictLensLine(analysis)} · AI confidence {analysis.verdict.confidence}
+                </span>
+              </div>
 
-          <p className="dca-strategic t-body-sm-short">Strategic context: [P2.2 pending]</p>
+              <div className="dca-checklist">
+                {analysis.verdict.tactical_steps.length > 0 ? (
+                  analysis.verdict.tactical_steps.map((s) => (
+                    <label key={s.id} className="dca-check-row t-body-sm-short">
+                      <input type="checkbox" disabled />
+                      <span>
+                        <span className="dca-chip">{s.channel}</span> {s.text}
+                      </span>
+                    </label>
+                  ))
+                ) : (
+                  <p className="t-caption">No tactical steps returned.</p>
+                )}
+              </div>
 
-          <div className="dca-outcome">
-            <label className="t-label-sm">Expected outcome (required)</label>
-            <textarea
-              disabled
-              placeholder="Approve enabled once P2.2 ships"
-            />
-          </div>
+              <p className="dca-strategic t-body-sm-short">
+                {analysis.verdict.strategic_context || "No strategic context returned."}
+              </p>
+
+              <div className="dca-outcome">
+                <label className="t-label-sm">Expected outcome (required before approve — P2.3)</label>
+                <textarea
+                  disabled
+                  defaultValue={analysis.verdict.expected_outcome_template}
+                  placeholder="AI-suggested prediction will seed this field"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="dca-verdict-action">
+                <span className="dca-ai-verb dca-ai-verb--pending">Not analysed</span>
+                <span className="dca-lens-window t-caption">Run the AI brain for this event</span>
+              </div>
+              <p className="dca-strategic t-body-sm-short">
+                No persisted analysis for this event yet.
+              </p>
+            </>
+          )}
 
           <div className="dca-verdict-actions">
+            {/* Approve / Override flow ships in P2.3 */}
             <button type="button" className="pl-btn pl-btn-primary pl-btn-m" disabled>
               Approve
             </button>
@@ -256,6 +319,25 @@ function KpiTile({ label, value, d, goodUp }: { label: string; value: string; d?
       )}
     </div>
   );
+}
+
+const LENS_LABEL: Record<LensName, string> = {
+  internal: "Internal",
+  meta: "Meta",
+  google: "Google",
+  ga4: "GA4",
+  last_week: "Last week",
+  market: "Market",
+};
+
+/** "Primary: Meta · Contributing: Internal, GA4" line under the verdict verb. */
+function verdictLensLine(analysis: BrainAnalysis): string {
+  const v = analysis.verdict;
+  const primary = v.primary_lens ? `Primary: ${LENS_LABEL[v.primary_lens]}` : "No single primary lens";
+  const contributing = v.contributing_lenses.length
+    ? ` · Contributing: ${v.contributing_lenses.map((k) => LENS_LABEL[k]).join(", ")}`
+    : "";
+  return primary + contributing;
 }
 
 function clusterLine(report: EventReport): string {

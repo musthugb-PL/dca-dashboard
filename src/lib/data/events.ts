@@ -37,7 +37,9 @@ import {
   computeDeltas,
   lookupClusterBaseline,
   getAnalogs,
+  getAffinitySiblings,
 } from "./event-snapshot";
+import { getPastDecisionsContext } from "./lens5";
 
 /** Channel-name test for Meta sources in channels_3 (e.g. "fb & instagram"). */
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -125,12 +127,17 @@ export type EventReport = {
   deltas?: WowDeltas; // week-over-week deltas (current vs prior)
   clusterBaseline?: ClusterBaseline | null;
   analogs?: AnalogEvent[];
+  // --- P2.2 reference-data additions ---
+  affinitySiblings?: AffinitySibling[]; // ref priority #3 — running co-purchase siblings
+  pastDecisions?: PastDecisions; // Lens 5 — prior decisions/notes (multi-source + fuzzy name)
 };
 
 export type ReportOptions = {
   includePrior?: boolean; // compute prior-7d snapshot + WoW deltas
   includeCluster?: boolean; // resolve dca_cluster_baselines row
   includeAnalogs?: boolean; // pull top-N similar events + their metrics
+  includeAffinitySiblings?: boolean; // ref priority #3 — running affinity siblings + metrics
+  includePastDecisions?: boolean; // Lens 5 — multi-source past-decision context
 };
 
 export type KpiBlock = EventReport["kpis"];
@@ -180,6 +187,38 @@ export type AnalogEvent = {
   roas: number;
   meta_ctr: number | null;
   google_ctr: number | null;
+};
+
+/**
+ * CLAUDE.md reference-data priority #3: affinity siblings CURRENTLY RUNNING.
+ * Co-purchase neighbours (dca_v_affinity) filtered to ledger status='running',
+ * with each sibling's same-window metrics (same shape as AnalogEvent).
+ */
+export type AffinitySibling = {
+  event_id: string;
+  name: string;
+  affinity_norm: number; // co-purchase affinity score (higher = closer)
+  sales_aed: number;
+  spend_aed: number;
+  tickets: number;
+  roas: number;
+  meta_ctr: number | null;
+  google_ctr: number | null;
+};
+
+/** One past-decision/optimisation note matched to this event (Lens 5). */
+export type PastDecisionItem = {
+  source: "decisions" | "weekly_notes" | "source_b_notes" | "optimisation_notes";
+  matched_by: "event_id" | "name";
+  when: string | null; // review_date / week_of / week_label
+  event_name: string | null;
+  action: string | null; // final_action / action_taken (null for free-text notes)
+  text: string; // reasoning / prediction / notes, concatenated + trimmed
+};
+
+export type PastDecisions = {
+  items: PastDecisionItem[];
+  count: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -374,6 +413,12 @@ export async function getEventReport(
   }
   if (opts.includeAnalogs) {
     report.analogs = await getAnalogs(eventId, dateFrom, dateTo);
+  }
+  if (opts.includeAffinitySiblings) {
+    report.affinitySiblings = await getAffinitySiblings(eventId, dateFrom, dateTo);
+  }
+  if (opts.includePastDecisions) {
+    report.pastDecisions = await getPastDecisionsContext(eventId, eventMeta.name);
   }
 
   return report;

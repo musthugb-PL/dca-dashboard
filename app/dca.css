@@ -54,6 +54,17 @@
 }
 .dca-ai-reason { color: var(--content-secondary); }
 
+/* Action-verb semantics (P2.2): colour the recommended action by intent.
+   Double-class form so these beat the generic `.dca-ai-verb { color: poodle }`
+   rule below regardless of source order. */
+.dca-ai-verb.dca-ai-verb--kill     { background: var(--accent-alert-light);   color: var(--accent-alert); }
+.dca-ai-verb.dca-ai-verb--pause    { background: var(--accent-caution-light); color: var(--accent-caution); }
+.dca-ai-verb.dca-ai-verb--scale    { background: var(--accent-success-light); color: var(--accent-success); }
+.dca-ai-verb.dca-ai-verb--optimize,
+.dca-ai-verb.dca-ai-verb--remarket { background: var(--accent-caution-light); color: var(--content-primary); }
+.dca-ai-verb.dca-ai-verb--hold,
+.dca-ai-verb.dca-ai-verb--pending  { background: var(--bg-secondary); color: var(--content-secondary); }
+
 /* Lens dots — 3-level traffic light (grey until P2.2 scores arrive) */
 .dca-lenses { display: flex; gap: var(--spacing-16); margin-top: var(--spacing-16); flex-wrap: wrap; }
 .dca-lens { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-4); }

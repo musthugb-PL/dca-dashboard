@@ -10,6 +10,8 @@ import { getSupabase } from "@/lib/supabase";
 import { getEventReport, type EventReport, type ReportOptions } from "./events";
 import { type Slot, isoDate, addDays, daysSince } from "@/src/lib/slot";
 import { ruleToLens } from "@/src/lib/red-flags";
+import { getBrainAnalysesForSlot } from "@/src/lib/ai-brain/persist";
+import type { BrainAnalysis } from "@/src/lib/ai-brain/types";
 
 export type LensSeverity = "red" | "yellow";
 export type CardFlags = {
@@ -37,6 +39,8 @@ export type ReviewCard = {
   report: EventReport | null;
   error: string | null;
   flags: CardFlags;
+  /** Persisted AI-brain analysis for today's slot run, or null if not yet run. */
+  analysis: BrainAnalysis | null;
 };
 
 type FlagRow = { event_id: string; rule_key: string; severity: string };
@@ -129,15 +133,19 @@ export async function getReviewCards(
     new Set(eligible.flatMap((r) => r.event_ids ?? [r.event_id])),
   );
   const flagMap = await fetchFlagsForSlot(sb, slot, today, allIds);
+  // Today's persisted AI analyses for this slot (best-effort overlay — keyed by
+  // the card's primary event_id). Empty until the brain has been run for a card.
+  const analysisMap = await getBrainAnalysesForSlot(slot, allIds, today);
 
   const cards: ReviewCard[] = await Promise.all(
     eligible.map(async (row): Promise<ReviewCard> => {
       const primaryEventId = row.event_ids?.[0] ?? row.event_id;
       const daysSinceLaunch = daysSince(row.campaign_start_date, today);
       const flags = computeCardFlags(row.event_ids ?? [primaryEventId], flagMap);
+      const analysis = analysisMap.get(primaryEventId) ?? null;
       try {
         const report = await getEventReport(Number(primaryEventId), dateFrom, dateTo, reportOpts);
-        return { row, primaryEventId, daysSinceLaunch, report, error: null, flags };
+        return { row, primaryEventId, daysSinceLaunch, report, error: null, flags, analysis };
       } catch (e) {
         return {
           row,
@@ -146,6 +154,7 @@ export async function getReviewCards(
           report: null,
           error: e instanceof Error ? e.message : String(e),
           flags,
+          analysis,
         };
       }
     }),

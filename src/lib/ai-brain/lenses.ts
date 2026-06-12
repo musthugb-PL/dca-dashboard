@@ -26,6 +26,21 @@ function analogStr(report: EventReport): string {
     .map((a) => `${a.name} (#${a.rank}): ROAS ${r2(a.roas)}x, MetaCTR ${a.meta_ctr === null ? "n/a" : pctn(a.meta_ctr) + "%"}, GoogleCTR ${a.google_ctr === null ? "n/a" : pctn(a.google_ctr) + "%"}`)
     .join(" | ");
 }
+function siblingsStr(report: EventReport): string {
+  if (!report.affinitySiblings?.length) return "none currently running";
+  return report.affinitySiblings
+    .map((s) => `${s.name || s.event_id} (affinity ${r2(s.affinity_norm)}): ROAS ${r2(s.roas)}x, MetaCTR ${s.meta_ctr === null ? "n/a" : pctn(s.meta_ctr) + "%"}, GoogleCTR ${s.google_ctr === null ? "n/a" : pctn(s.google_ctr) + "%"}, sales AED ${r2(s.sales_aed)}`)
+    .join(" | ");
+}
+/** Serialise Lens 5 past-decision items for the prompt (capped + trimmed). */
+function pastDecisionsStr(report: EventReport): string {
+  const pd = report.pastDecisions;
+  if (!pd || pd.count === 0) return "no prior decisions or notes found for this event (by id or name)";
+  return pd.items
+    .slice(0, 12)
+    .map((i) => `[${i.source}/${i.matched_by}${i.when ? " " + i.when : ""}${i.action ? " action=" + i.action : ""}${i.event_name ? ' "' + i.event_name + '"' : ""}] ${i.text}`)
+    .join("\n");
+}
 
 const SCHEMA =
   `Return ONLY this JSON: {"lens_score": <0-100 int>, "severity": "green"|"yellow"|"red", ` +
@@ -54,26 +69,30 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
   meta: {
     window: "current 7d vs prior 7d",
     rubric:
-      "Lens 2 — Meta deep dive. Fatigue / CTR / CPA / ROAS vs prior week, vs cluster baseline, vs analog. High score = Meta is the primary cause.",
+      "Lens 2 — Meta deep dive. Fatigue / CTR / CPA / ROAS vs prior week, vs cluster baseline, vs analog. " +
+      "If affinity siblings are running, note audience-overlap read (e.g. 'sibling X running at CTR __'). High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
       return {
         meta: m ? { spend: r2(m.spend), ctr_pct: pctn(m.ctr), cpa_aed: r2(m.cpa), roas: r2(m.roas), tickets: r2(m.tickets) } : "no Meta spend",
         meta_ctr_wow: r.deltas?.meta_ctr ? { cur_pct: pctn(r.deltas.meta_ctr.current), prior_pct: pctn(r.deltas.meta_ctr.prior) } : null,
         meta_cpa_wow: r.deltas?.meta_cpa ? { cur_aed: r2(r.deltas.meta_cpa.current), prior_aed: r2(r.deltas.meta_cpa.prior) } : null,
+        affinity_siblings_running: siblingsStr(r),
       };
     },
   },
   google: {
     window: "current 7d vs prior 7d",
     rubric:
-      "Lens 3 — Google deep dive. CPC / CPA band (5-25% of ticket price) / conversion / wasted spend vs cluster + analog. High score = Google is the primary cause.",
+      "Lens 3 — Google deep dive. CPC / CPA band (5-25% of ticket price) / conversion / wasted spend vs cluster + analog. " +
+      "If affinity siblings are running, use their Google read for audience-overlap context. High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");
       return {
         google: g ? { spend: r2(g.spend), ctr_pct: pctn(g.ctr), cpa_aed: r2(g.cpa), roas: r2(g.roas), tickets: r2(g.tickets) } : "no Google spend",
         ticket_price_aed: r2(r.kpis.avg_ticket_price),
         google_cpa_wow: r.deltas?.google_cpa ? { cur_aed: r2(r.deltas.google_cpa.current), prior_aed: r2(r.deltas.google_cpa.prior) } : null,
+        affinity_siblings_running: siblingsStr(r),
       };
     },
   },
@@ -90,8 +109,10 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
   last_week: {
     window: "last 4 weeks of decisions",
     rubric:
-      "Lens 5 — Last week review. Did a prior decision work, or are we looping? NOTE: prior-decision history is not yet wired into this data feed.",
-    data: () => ({ prior_decisions: "not available in this feed — cannot assess; state so" }),
+      "Lens 5 — Last week review. Read the prior decisions/notes below (unioned from our decisions log, weekly notes, master notes, and the existing dashboard's notes; some matched by event name, not id — say which). " +
+      "Assess: did the last intervention's actual outcome move OPPOSITE its prediction (STRONG → high score), or is the same action looping within ~14 days (STRONG)? Flat outcome or 3+ interventions with no upward trend = CONTRIBUTING (mid). Prediction held / no recent touches = HEALTHY (low). " +
+      "Cite specific note text. If the list says none were found, score 0 and state plainly that there is no prior-decision history — do NOT invent any.",
+    data: (r) => ({ past_decisions: pastDecisionsStr(r) }),
   },
 };
 
@@ -134,7 +155,9 @@ async function runMarketLens(report: EventReport, eventName: string): Promise<Le
     user:
       `Lens 6 — Market & external context. Structure the market scan below into the lens JSON. ` +
       `severity: green = no notable external factor, yellow = a contributing factor, red = a dominant external factor explaining the gap. ` +
-      `Only cite factors actually present in the scan.\n\nMARKET SCAN:\n${scan.content}\n\n${SCHEMA}`,
+      `Only cite factors actually present in the scan.\n\n` +
+      `CURRENTLY-RUNNING AFFINITY SIBLINGS (competitive context — same audience, live now): ${siblingsStr(report)}\n\n` +
+      `MARKET SCAN:\n${scan.content}\n\n${SCHEMA}`,
     maxTokens: 600,
   });
   return coerce("market", data);

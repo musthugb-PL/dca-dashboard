@@ -18,6 +18,7 @@ import type {
   WowDeltas,
   ClusterBaseline,
   AnalogEvent,
+  AffinitySibling,
 } from "./events";
 
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -211,6 +212,72 @@ export async function getAnalogs(
       });
     } catch {
       /* skip analogs that error */
+    }
+  }
+  return out;
+}
+
+/**
+ * CLAUDE.md reference-data priority #3: affinity siblings CURRENTLY RUNNING.
+ * Top co-purchase neighbours from dca_v_affinity, filtered to ledger
+ * status='running', with each one's same-window metrics. Empty array when the
+ * event has no affinity graph yet (new events) — callers / prompts must say so,
+ * never invent (Sacred Rule #11).
+ */
+export async function getAffinitySiblings(
+  eventId: number,
+  dateFrom: string,
+  dateTo: string,
+  limit = 5,
+): Promise<AffinitySibling[]> {
+  const sb = getSupabase();
+
+  // Pull more than `limit` candidates so the running-only filter still yields up to `limit`.
+  const { data: affData } = await sb
+    .from("dca_v_affinity")
+    .select("id_event_2,affinity_norm")
+    .eq("id_event", eventId)
+    .order("affinity_norm", { ascending: false })
+    .limit(limit * 4);
+  const cand = (affData ?? []) as { id_event_2: number; affinity_norm: number }[];
+  if (!cand.length) return [];
+
+  // Keep only siblings that are currently running in the ledger; carry their names.
+  const candIds = cand.map((c) => String(c.id_event_2));
+  const { data: ledData } = await sb
+    .from("dca_campaign_ledger")
+    .select("event_id,event_name,status")
+    .in("event_id", candIds)
+    .eq("status", "running");
+  const running = new Map(
+    ((ledData ?? []) as { event_id: string; event_name: string }[]).map((r) => [
+      String(r.event_id),
+      r.event_name,
+    ]),
+  );
+
+  const ordered = cand.filter((c) => running.has(String(c.id_event_2))).slice(0, limit);
+
+  const out: AffinitySibling[] = [];
+  for (const c of ordered) {
+    const sid = String(c.id_event_2);
+    try {
+      const snap = await computeSnapshot(c.id_event_2, dateFrom, dateTo);
+      const meta = snap.channels.find((ch) => ch.source.toLowerCase() === "meta") ?? null;
+      const google = snap.channels.find((ch) => ch.source.toLowerCase() === "google") ?? null;
+      out.push({
+        event_id: sid,
+        name: running.get(sid) ?? "",
+        affinity_norm: c.affinity_norm,
+        sales_aed: snap.kpis.total_sales_aed,
+        spend_aed: snap.kpis.total_spend_aed,
+        tickets: snap.ads_performance.tickets,
+        roas: snap.kpis.total_roas,
+        meta_ctr: meta ? meta.ctr : null,
+        google_ctr: google ? google.ctr : null,
+      });
+    } catch {
+      /* skip siblings that error in the window */
     }
   }
   return out;
