@@ -21,6 +21,8 @@ import type {
   AnalogEvent,
   AffinitySibling,
   WinningSegment,
+  AdSet,
+  OwnSegments,
 } from "./events";
 
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -391,6 +393,118 @@ async function getWinningSegments(
   }
 
   return out;
+}
+
+/**
+ * Fix 4: the CURRENT event's own ad-set/ad granularity over the window.
+ * Meta (dca_v_meta_ads, ad_name level): top 5 by ROAS + worst 3 by CPA.
+ * Google (dca_v_google_ads, campaign×ad_group): top 5 by conversions + worst 3
+ * by cost-per-conversion. spend >= 50 AED filter drops noise. Lets the AI cite
+ * "kill ad set X / scale ad set Y" with real names + numbers (within-event only).
+ */
+export async function getOwnSegments(
+  eventId: number,
+  dateFrom: string,
+  dateTo: string,
+): Promise<OwnSegments> {
+  const sb = getSupabase();
+  const result: OwnSegments = { meta: { top: [], bottom: [] }, google: { top: [], bottom: [] } };
+
+  // --- Meta: group by (campaign, ad_name) ---
+  try {
+    const { data } = await sb
+      .from("dca_v_meta_ads")
+      .select("campaign,ad_name,spend_aed,impressions,clicks,custom_conversions,purchase_value_aed,frequency")
+      .ilike("campaign", `*_${eventId}_*`)
+      .gte("date", dateFrom)
+      .lte("date", dateTo)
+      .limit(3000);
+    type M = { spend: number; impr: number; clicks: number; conv: number; rev: number; freqSum: number; freqN: number; campaign: string; ad_name: string };
+    const g = new Map<string, M>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const ad_name = String(r.ad_name ?? "");
+      if (!ad_name) continue; // ad_name IS NOT NULL
+      const campaign = String(r.campaign ?? "");
+      const k = campaign + "||" + ad_name;
+      const m = g.get(k) ?? { spend: 0, impr: 0, clicks: 0, conv: 0, rev: 0, freqSum: 0, freqN: 0, campaign, ad_name };
+      m.spend += Number(r.spend_aed ?? 0);
+      m.impr += Number(r.impressions ?? 0);
+      m.clicks += Number(r.clicks ?? 0);
+      m.conv += Number(r.custom_conversions ?? 0);
+      m.rev += Number(r.purchase_value_aed ?? 0);
+      if (r.frequency != null) { m.freqSum += Number(r.frequency); m.freqN++; }
+      g.set(k, m);
+    }
+    const rows: AdSet[] = Array.from(g.values())
+      .filter((m) => m.spend >= 50)
+      .map((m) => ({
+        source: "meta" as const,
+        name: m.ad_name,
+        campaign: m.campaign || null,
+        spend_aed: m.spend,
+        ctr: m.impr > 0 ? m.clicks / m.impr : null,
+        conversions: m.conv,
+        roas: m.spend > 0 ? m.rev / m.spend : null,
+        cpa: m.conv > 0 ? m.spend / m.conv : null,
+        frequency: m.freqN > 0 ? m.freqSum / m.freqN : null,
+        conversion_rate: null,
+      }));
+    result.meta.top = [...rows].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0)).slice(0, 5);
+    result.meta.bottom = rows
+      .filter((r) => (r.conversions ?? 0) > 0 && r.cpa != null)
+      .sort((a, b) => (b.cpa ?? 0) - (a.cpa ?? 0))
+      .slice(0, 3);
+  } catch {
+    /* meta own-segments best-effort */
+  }
+
+  // --- Google: group by (campaign, ad_group); no revenue → rank by conversions ---
+  try {
+    const { data } = await sb
+      .from("dca_v_google_ads")
+      .select("campaign,ad_group,spend_aed,impressions,clicks,conversions,conversion_rate")
+      .ilike("campaign", `*${eventId}*`)
+      .gte("date", dateFrom)
+      .lte("date", dateTo)
+      .limit(3000);
+    type G = { spend: number; impr: number; clicks: number; conv: number; campaign: string; ad_group: string };
+    const g = new Map<string, G>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const campaign = String(r.campaign ?? "");
+      const ad_group = String(r.ad_group ?? "");
+      const k = campaign + "||" + ad_group;
+      const m = g.get(k) ?? { spend: 0, impr: 0, clicks: 0, conv: 0, campaign, ad_group };
+      m.spend += Number(r.spend_aed ?? 0);
+      m.impr += Number(r.impressions ?? 0);
+      m.clicks += Number(r.clicks ?? 0);
+      m.conv += Number(r.conversions ?? 0);
+      g.set(k, m);
+    }
+    const shortGroup = (ag: string) => ag.replace(/^customers\/\d+\/adGroups\//, ""); // raw ad_group is a resource path
+    const rows: AdSet[] = Array.from(g.values())
+      .filter((m) => m.spend >= 50)
+      .map((m) => ({
+        source: "google" as const,
+        name: `${m.campaign} › ${shortGroup(m.ad_group)}`,
+        campaign: m.campaign || null,
+        spend_aed: m.spend,
+        ctr: m.impr > 0 ? m.clicks / m.impr : null,
+        conversions: m.conv,
+        roas: null,
+        cpa: m.conv > 0 ? m.spend / m.conv : null, // cost per conversion
+        frequency: null,
+        conversion_rate: m.clicks > 0 ? m.conv / m.clicks : null,
+      }));
+    result.google.top = [...rows].sort((a, b) => (b.conversions ?? 0) - (a.conversions ?? 0)).slice(0, 5);
+    result.google.bottom = rows
+      .filter((r) => (r.conversions ?? 0) > 0 && r.cpa != null)
+      .sort((a, b) => (b.cpa ?? 0) - (a.cpa ?? 0))
+      .slice(0, 3);
+  } catch {
+    /* google own-segments best-effort */
+  }
+
+  return result;
 }
 
 /**

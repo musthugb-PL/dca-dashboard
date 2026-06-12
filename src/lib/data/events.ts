@@ -38,6 +38,7 @@ import {
   lookupClusterBaseline,
   getAnalogs,
   getAffinitySiblings,
+  getOwnSegments,
 } from "./event-snapshot";
 import { getPastDecisionsContext } from "./lens5";
 
@@ -130,6 +131,7 @@ export type EventReport = {
   // --- P2.2 reference-data additions ---
   affinitySiblings?: AffinitySibling[]; // ref priority #3 — running co-purchase siblings
   pastDecisions?: PastDecisions; // Lens 5 — prior decisions/notes (multi-source + fuzzy name)
+  ownSegments?: OwnSegments; // Fix 4 — this event's own ad-set top/bottom performers
 };
 
 export type ReportOptions = {
@@ -138,6 +140,7 @@ export type ReportOptions = {
   includeAnalogs?: boolean; // pull top-N similar events + their metrics
   includeAffinitySiblings?: boolean; // ref priority #3 — running affinity siblings + metrics
   includePastDecisions?: boolean; // Lens 5 — multi-source past-decision context
+  includeOwnSegments?: boolean; // Fix 4 — this event's own ad-set granularity
 };
 
 export type KpiBlock = EventReport["kpis"];
@@ -205,6 +208,31 @@ export type WinningSegment = {
   spend_aed: number;
   conversions: number | null; // meta purchases / google conversions
   ctr: number | null;
+};
+
+/**
+ * One of the CURRENT event's own ad sets / ads over the window (Fix 4), for
+ * "kill ad set X, scale ad set Y" recommendations (within-event, Sacred Rule #9).
+ * Meta: ad_name level w/ ROAS + frequency. Google: campaign+ad_group, no revenue
+ * → roas null, ranked by conversions / cost-per-conversion.
+ */
+export type AdSet = {
+  source: "meta" | "google";
+  name: string; // ad_name (meta) or "campaign › ad_group" (google)
+  campaign: string | null; // audience is encoded in the campaign name
+  spend_aed: number;
+  ctr: number | null;
+  conversions: number | null; // meta custom_conversions / google conversions
+  roas: number | null; // meta purchase_value_aed / spend; google null
+  cpa: number | null; // spend / conversions (meta) or cost-per-conversion (google)
+  frequency: number | null; // meta only (fatigue signal)
+  conversion_rate: number | null; // google only
+};
+
+/** The current event's own segments: top performers + worst performers per channel. */
+export type OwnSegments = {
+  meta: { top: AdSet[]; bottom: AdSet[] };
+  google: { top: AdSet[]; bottom: AdSet[] };
 };
 
 /**
@@ -439,6 +467,9 @@ export async function getEventReport(
   }
   if (opts.includePastDecisions) {
     report.pastDecisions = await getPastDecisionsContext(eventId, eventMeta.name);
+  }
+  if (opts.includeOwnSegments) {
+    report.ownSegments = await getOwnSegments(eventId, dateFrom, dateTo);
   }
 
   return report;

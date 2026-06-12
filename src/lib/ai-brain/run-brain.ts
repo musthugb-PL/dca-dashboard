@@ -20,6 +20,7 @@ export async function runBrain(
     includeAnalogs: true,
     includeAffinitySiblings: true,
     includePastDecisions: true,
+    includeOwnSegments: true,
   });
   const eventName = report.event.name || `Event ${eventId}`;
 

@@ -26,6 +26,22 @@ function analogStr(report: EventReport): string {
     .map((a) => `${a.name} (#${a.rank}): ROAS ${r2(a.roas)}x, MetaCTR ${a.meta_ctr === null ? "n/a" : pctn(a.meta_ctr) + "%"}, GoogleCTR ${a.google_ctr === null ? "n/a" : pctn(a.google_ctr) + "%"}`)
     .join(" | ");
 }
+/** This event's OWN ad sets for a channel: top performers + worst performers. */
+export function ownSegmentsStr(report: EventReport, source: "meta" | "google"): string {
+  const seg = report.ownSegments?.[source];
+  if (!seg || (seg.top.length === 0 && seg.bottom.length === 0)) {
+    return "no own ad-set breakdown available (insufficient spend or no linked campaigns)";
+  }
+  const fmtMeta = (a: { name: string; roas: number | null; cpa: number | null; spend_aed: number; frequency: number | null }) =>
+    `"${a.name}": ROAS ${a.roas === null ? "n/a" : r2(a.roas) + "x"}, CPA ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, spend AED ${r2(a.spend_aed)}, freq ${a.frequency === null ? "n/a" : r2(a.frequency)}`;
+  const fmtGoogle = (a: { name: string; conversions: number | null; cpa: number | null; conversion_rate: number | null; spend_aed: number }) =>
+    `"${a.name}": ${a.conversions ?? 0} conv, cost/conv ${a.cpa === null ? "n/a" : "AED " + r2(a.cpa)}, convRate ${a.conversion_rate === null ? "n/a" : pctn(a.conversion_rate) + "%"}, spend AED ${r2(a.spend_aed)}`;
+  const fmt = source === "meta" ? fmtMeta : fmtGoogle;
+  const top = seg.top.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
+  const bottom = seg.bottom.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
+  return `top by ${source === "meta" ? "ROAS" : "conversions"}:\n${top}\nworst (${source === "meta" ? "highest CPA" : "highest cost/conv"}, spend>50 AED):\n${bottom}`;
+}
+
 export function segmentsStr(report: EventReport): string {
   const sibs = report.affinitySiblings ?? [];
   const lines: string[] = [];
@@ -90,6 +106,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
     rubric:
       "Lens 2 — Meta deep dive. Fatigue / CTR / CPA / ROAS vs prior week, vs cluster baseline, vs analog. " +
       "If affinity siblings are running, note audience-overlap read. If a sibling's WINNING SEGMENT (named ad/audience) outperforms this event's Meta equivalent by >50%, flag it by name as a tactical opportunity to TEST on this campaign (never move budget between events). " +
+      "When citing this event's OWN ad sets, ALWAYS use the actual ad_name/campaign string from the data. If a top performer's ROAS exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event reallocation, Sacred Rule #9). " +
       "High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
@@ -97,6 +114,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
         meta: m ? { spend: r2(m.spend), ctr_pct: pctn(m.ctr), cpa_aed: r2(m.cpa), roas: r2(m.roas), tickets: r2(m.tickets) } : "no Meta spend",
         meta_ctr_wow: r.deltas?.meta_ctr ? { cur_pct: pctn(r.deltas.meta_ctr.current), prior_pct: pctn(r.deltas.meta_ctr.prior) } : null,
         meta_cpa_wow: r.deltas?.meta_cpa ? { cur_aed: r2(r.deltas.meta_cpa.current), prior_aed: r2(r.deltas.meta_cpa.prior) } : null,
+        own_meta_ad_sets: ownSegmentsStr(r, "meta"),
         affinity_siblings_running: siblingsStr(r),
         sibling_winning_segments: segmentsStr(r),
       };
@@ -107,6 +125,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
     rubric:
       "Lens 3 — Google deep dive. CPC / CPA band (5-25% of ticket price) / conversion / wasted spend vs cluster + analog. " +
       "If a sibling's WINNING Google segment (named campaign/ad_group) is converting materially better than this event's, flag it by name as a pattern to TEST here (within-event only, never cross-event budget moves). " +
+      "When citing this event's OWN ad groups, ALWAYS use the actual campaign/ad_group string. If a top performer's conversions/efficiency exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event, Sacred Rule #9). " +
       "High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");
@@ -114,6 +133,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
         google: g ? { spend: r2(g.spend), ctr_pct: pctn(g.ctr), cpa_aed: r2(g.cpa), roas: r2(g.roas), tickets: r2(g.tickets) } : "no Google spend",
         ticket_price_aed: r2(r.kpis.avg_ticket_price),
         google_cpa_wow: r.deltas?.google_cpa ? { cur_aed: r2(r.deltas.google_cpa.current), prior_aed: r2(r.deltas.google_cpa.prior) } : null,
+        own_google_ad_groups: ownSegmentsStr(r, "google"),
         affinity_siblings_running: siblingsStr(r),
         sibling_winning_segments: segmentsStr(r),
       };
