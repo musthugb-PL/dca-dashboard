@@ -81,8 +81,33 @@ export function detectRedFlags(report: EventReport): RedFlag[] {
     }
   }
 
-  // --- TODO (P1.5 prev-period data): cpa_streak, roas_wow, ctr_drop ---
-  // Intentionally not evaluated until the data layer exposes daily series + WoW.
+  // --- WoW rules (require report.deltas from getEventReport({includePrior:true})) ---
+  const d = report.deltas;
+  if (d) {
+    // roas_wow — ads ROAS down week-over-week → yellow (only if there's spend)
+    if (report.ads_performance.spend > 0 && d.ads_roas.pct < 0) {
+      flags.push({
+        rule_key: "roas_wow",
+        value: +(d.ads_roas.pct * 100).toFixed(1),
+        threshold: 0,
+        severity: "yellow",
+        message: `Ads ROAS down WoW: ${d.ads_roas.current.toFixed(1)}x vs ${d.ads_roas.prior.toFixed(1)}x (${(d.ads_roas.pct * 100).toFixed(0)}%)`,
+      });
+    }
+    // ctr_drop — Meta CTR fell > 20% WoW → red
+    if (d.meta_ctr && d.meta_ctr.prior > 0 && d.meta_ctr.pct < -0.2) {
+      flags.push({
+        rule_key: "ctr_drop",
+        value: +(d.meta_ctr.current * 100).toFixed(2),
+        threshold: +(d.meta_ctr.prior * 0.8 * 100).toFixed(2),
+        severity: "red",
+        message: `Meta CTR dropped ${Math.abs(d.meta_ctr.pct * 100).toFixed(0)}% WoW: ${(d.meta_ctr.current * 100).toFixed(2)}% vs ${(d.meta_ctr.prior * 100).toFixed(2)}%`,
+      });
+    }
+  }
+
+  // --- TODO: cpa_streak (3 days rising) needs a DAILY CPA series, not just
+  // prior-7d WoW — deferred until the data layer exposes per-day channel CPA. ---
 
   return flags;
 }

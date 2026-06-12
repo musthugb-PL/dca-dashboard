@@ -4,6 +4,7 @@ import { getSupabase } from "@/lib/supabase";
 import { isoDate, addDays, daysSince } from "@/src/lib/slot";
 import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { lensDotClass } from "@/src/lib/lens";
+import DeltaPill from "@/app/components/DeltaPill";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,11 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   let report: EventReport | null = null;
   let error: string | null = null;
   try {
-    report = await getEventReport(Number(params.eventId), dateFrom, dateTo);
+    report = await getEventReport(Number(params.eventId), dateFrom, dateTo, {
+      includePrior: true,
+      includeCluster: true,
+      includeAnalogs: true,
+    });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -145,14 +150,14 @@ export default async function EventReportPage({ params }: { params: { eventId: s
           <span>window {dateFrom} → {dateTo}</span>
         </div>
 
-        {/* b. KPI strip */}
+        {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
         <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
-          <h2 className="t-title-sm">KPIs</h2>
+          <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
           <div className="dca-report-grid">
-            <Tile label="Sales" value={aed(report.kpis.total_sales_aed)} />
-            <Tile label="Spend" value={aed(report.kpis.total_spend_aed)} />
-            <Tile label="ROAS" value={roasFmt(report.kpis.total_roas)} />
-            <Tile label="Tickets" value={intFmt(report.kpis.tickets_sold)} />
+            <KpiTile label="Sales" value={aed(report.kpis.total_sales_aed)} d={report.deltas?.total_sales.pct} goodUp />
+            <KpiTile label="Spend" value={aed(report.kpis.total_spend_aed)} d={report.deltas?.total_spend.pct} goodUp={false} />
+            <KpiTile label="ROAS" value={roasFmt(report.kpis.total_roas)} d={report.deltas?.total_roas.pct} goodUp />
+            <KpiTile label="Tickets" value={intFmt(report.kpis.tickets_sold)} d={report.deltas?.tickets.pct} goodUp />
           </div>
         </section>
 
@@ -177,8 +182,8 @@ export default async function EventReportPage({ params }: { params: { eventId: s
                 <li>Diagnosis (P2.2 pending)</li>
                 <li>Diagnosis (P2.2 pending)</li>
               </ul>
-              <p className="dca-ref-line t-caption">Cluster baseline: [pending P2.2 join]</p>
-              <p className="dca-ref-line t-caption">Analog: [pending P2.2 similar-event pull]</p>
+              <p className="dca-ref-line t-caption">{clusterLine(report)}</p>
+              <p className="dca-ref-line t-caption">{analogLine(report, lens.name)}</p>
             </section>
           ))}
         </div>
@@ -239,4 +244,40 @@ function Tile({ label, value }: { label: string; value: string }) {
       <span className="dca-tile-value t-title-sm">{value}</span>
     </div>
   );
+}
+
+function KpiTile({ label, value, d, goodUp }: { label: string; value: string; d?: number; goodUp: boolean }) {
+  return (
+    <div className="dca-tile">
+      <span className="dca-tile-label t-caption">{label}</span>
+      <span className="dca-tile-value t-title-sm">{value}</span>
+      {d !== undefined && (
+        <DeltaPill value={d * 100} good={goodUp ? d >= 0 : d <= 0} />
+      )}
+    </div>
+  );
+}
+
+function clusterLine(report: EventReport): string {
+  const cb = report.clusterBaseline;
+  if (!cb) return "Cluster baseline: —";
+  if (!cb.matched) {
+    return `Cluster baseline: no match (category "${cb.event_category || "?"}" / band ${cb.price_band})`;
+  }
+  const pct = (x: number | null) => (x === null ? "?" : (x * 100).toFixed(2) + "%");
+  const aedp = (x: number | null) => (x === null ? "?" : "AED " + Math.round(x));
+  const roasp = (x: number | null) => (x === null ? "?" : x.toFixed(1) + "x");
+  return `Cluster ${cb.cluster_category} / ${cb.price_band} (n=${cb.sample_size}, ${cb.strategy}): CTR p50 ${pct(cb.ctr_p50)} · CPA p50 ${aedp(cb.cpa_p50)} · ROAS p50 ${roasp(cb.roas_p50)}`;
+}
+
+function analogLine(report: EventReport, lensName: string): string {
+  const a = report.analogs;
+  if (!a || a.length === 0) return "Analog: none found";
+  const top = a[0];
+  const pct = (x: number | null) => (x === null ? "n/a" : (x * 100).toFixed(2) + "%");
+  let metric: string;
+  if (lensName === "Meta") metric = `Meta CTR ${pct(top.meta_ctr)}`;
+  else if (lensName === "Google") metric = `Google CTR ${pct(top.google_ctr)}`;
+  else metric = `ROAS ${top.roas.toFixed(1)}x`;
+  return `Analog: ${top.event_id} "${top.name}" — ${metric}, sales AED ${Math.round(top.sales_aed)} (${a.length} of top-3 shown)`;
 }

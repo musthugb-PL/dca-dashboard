@@ -31,7 +31,8 @@ export type RedFlagRunResult = {
 
 export async function runRedFlagDetection(today: Date = new Date()): Promise<RedFlagRunResult> {
   const slot: Slot = slotForDate(today) ?? mostRecentSlot(today);
-  const { cards, dateFrom, dateTo } = await getReviewCards(slot, today);
+  // includePrior → reports carry WoW deltas so roas_wow + ctr_drop can fire.
+  const { cards, dateFrom, dateTo } = await getReviewCards(slot, today, { includePrior: true });
 
   const nowIso = new Date().toISOString();
   const hits: Record<string, unknown>[] = [];
