@@ -7,7 +7,7 @@
  */
 
 import { getSupabase } from "@/lib/supabase";
-import { getEventReport, type EventReport } from "./events";
+import { getEventReport, type EventReport, type ReportOptions } from "./events";
 import { type Slot, isoDate, addDays, daysSince } from "@/src/lib/slot";
 import { ruleToLens } from "@/src/lib/red-flags";
 
@@ -99,7 +99,11 @@ export type ReviewCardsResult = {
 
 const ACTIVE_MIN_DAYS = 7;
 
-export async function getReviewCards(slot: Slot, today: Date): Promise<ReviewCardsResult> {
+export async function getReviewCards(
+  slot: Slot,
+  today: Date,
+  reportOpts: ReportOptions = {},
+): Promise<ReviewCardsResult> {
   const sb = getSupabase();
   const dateTo = isoDate(today);
   const dateFrom = isoDate(addDays(today, -7));
@@ -132,7 +136,7 @@ export async function getReviewCards(slot: Slot, today: Date): Promise<ReviewCar
       const daysSinceLaunch = daysSince(row.campaign_start_date, today);
       const flags = computeCardFlags(row.event_ids ?? [primaryEventId], flagMap);
       try {
-        const report = await getEventReport(Number(primaryEventId), dateFrom, dateTo);
+        const report = await getEventReport(Number(primaryEventId), dateFrom, dateTo, reportOpts);
         return { row, primaryEventId, daysSinceLaunch, report, error: null, flags };
       } catch (e) {
         return {

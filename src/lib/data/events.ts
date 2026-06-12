@@ -31,6 +31,13 @@ import {
 import { getMetaAttribution, type MetaAttribution } from "./meta";
 import { applyCap, summariseCappedBySource, type ChannelDailyRow } from "./cap";
 import { bq, BQ_PROJECT, BQ_DATASET } from "@/lib/bigquery";
+import { isoDate, addDays } from "@/src/lib/slot";
+import {
+  computeSnapshot,
+  computeDeltas,
+  lookupClusterBaseline,
+  getAnalogs,
+} from "./event-snapshot";
 
 /** Channel-name test for Meta sources in channels_3 (e.g. "fb & instagram"). */
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -113,6 +120,66 @@ export type EventReport = {
     cap_ratio: number; // window-level cap applied to attribution (1.0 = none)
     attribution: MetaAttribution; // full Tier 1/2/3 diagnostic
   };
+  // --- P1.5 extensions (only present when requested via ReportOptions) ---
+  prior?: WindowSnapshot; // same metrics for the prior 7d window
+  deltas?: WowDeltas; // week-over-week deltas (current vs prior)
+  clusterBaseline?: ClusterBaseline | null;
+  analogs?: AnalogEvent[];
+};
+
+export type ReportOptions = {
+  includePrior?: boolean; // compute prior-7d snapshot + WoW deltas
+  includeCluster?: boolean; // resolve dca_cluster_baselines row
+  includeAnalogs?: boolean; // pull top-N similar events + their metrics
+};
+
+export type KpiBlock = EventReport["kpis"];
+export type AdsBlock = EventReport["ads_performance"];
+
+/** The metric core of a window — reused for current, prior, and analogs. */
+export type WindowSnapshot = {
+  kpis: KpiBlock;
+  ads_performance: AdsBlock;
+  channels: ChannelReport[];
+};
+
+export type Delta = { current: number; prior: number; pct: number }; // pct = (cur-prior)/prior
+
+export type WowDeltas = {
+  total_sales: Delta;
+  total_spend: Delta;
+  tickets: Delta;
+  total_roas: Delta;
+  ads_ctr: Delta;
+  ads_roas: Delta;
+  meta_ctr: Delta | null;
+  meta_cpa: Delta | null;
+  google_cpa: Delta | null;
+};
+
+export type ClusterBaseline = {
+  matched: boolean;
+  strategy: "exact" | "contains" | null;
+  event_category: string; // the event's category used for lookup
+  price_band: string;
+  cluster_category: string | null; // the matched cluster's category
+  cpa_p50: number | null;
+  ctr_p50: number | null;
+  roas_p50: number | null;
+  sample_size: number | null;
+};
+
+export type AnalogEvent = {
+  event_id: string;
+  rank: number;
+  score: number;
+  name: string;
+  sales_aed: number;
+  spend_aed: number;
+  tickets: number;
+  roas: number;
+  meta_ctr: number | null;
+  google_ctr: number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -152,6 +219,7 @@ export async function getEventReport(
   eventId: number,
   dateFrom: string,
   dateTo: string,
+  opts: ReportOptions = {},
 ): Promise<EventReport> {
   const [sales, channelPerf, funnel, metaAttr, eventMeta] = await Promise.all([
     getEventSales(eventId, dateFrom, dateTo),
@@ -252,7 +320,7 @@ export async function getEventReport(
     ctr: b.ctr,
   }));
 
-  return {
+  const report: EventReport = {
     event: eventMeta,
     kpis: {
       total_sales_aed: sales.total_sales,
@@ -288,4 +356,25 @@ export async function getEventReport(
     },
     meta: { cap_ratio, attribution: metaAttr },
   };
+
+  // --- P1.5 extensions (opt-in; dashboard omits them to stay fast) ---
+  if (opts.includePrior) {
+    const anchor = new Date(dateFrom + "T00:00:00");
+    const priorFrom = isoDate(addDays(anchor, -7));
+    const priorTo = isoDate(addDays(anchor, -1));
+    const prior = await computeSnapshot(eventId, priorFrom, priorTo);
+    report.prior = { kpis: prior.kpis, ads_performance: prior.ads_performance, channels: prior.channels };
+    report.deltas = computeDeltas(
+      { kpis: report.kpis, ads_performance: report.ads_performance, channels },
+      report.prior,
+    );
+  }
+  if (opts.includeCluster) {
+    report.clusterBaseline = await lookupClusterBaseline(eventId, sales.avg_ticket_price);
+  }
+  if (opts.includeAnalogs) {
+    report.analogs = await getAnalogs(eventId, dateFrom, dateTo);
+  }
+
+  return report;
 }
