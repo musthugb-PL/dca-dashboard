@@ -205,6 +205,36 @@
 /* 2. AI verb chip + lens window get a touch of purple accent */
 .dca-ai-verb { color: var(--poodle-40); }
 
+/* ==========================================================================
+   PHASE B — UX rebuild
+   ========================================================================== */
+
+/* B1 — lens card */
+.dca-lenscard { display: flex; flex-direction: column; }
+.dca-lens-status {
+  display: inline-flex; align-self: flex-start; align-items: center;
+  margin-top: var(--spacing-8); padding: var(--spacing-2) var(--spacing-10);
+  border-radius: var(--radius-pill); font-size: var(--font-size-xs);
+  line-height: var(--font-line-height-2xs); font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+}
+.dca-lens-status--healthy    { background: var(--accent-success-light); color: var(--accent-success); }
+.dca-lens-status--softening  { background: var(--accent-caution-light); color: var(--accent-caution); }
+.dca-lens-status--collapsing { background: var(--accent-alert-light);   color: var(--accent-alert); }
+.dca-lens-status--nodata     { background: var(--bg-secondary);         color: var(--content-secondary); }
+
+.dca-proof { list-style: none; margin: var(--spacing-12) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--spacing-6); }
+.dca-proof-item { display: flex; align-items: flex-start; gap: var(--spacing-8); color: var(--content-primary); font-size: var(--font-size-sm); line-height: var(--font-line-height-sm); }
+.dca-proof-arrow { flex: none; font-weight: var(--font-weight-bold); line-height: 1.3; }
+.dca-proof-arrow--up   { color: var(--accent-success); }
+.dca-proof-arrow--down { color: var(--accent-alert); }
+.dca-proof-arrow--flat { color: var(--content-secondary); }
+.dca-proof-empty { color: var(--content-secondary); margin: var(--spacing-12) 0 0; }
+
+.dca-why { margin: var(--spacing-10) 0 0; }
+.dca-why-summary { cursor: pointer; color: var(--poodle-40); }
+.dca-why-list { margin: var(--spacing-8) 0 0; padding-left: var(--spacing-16); color: var(--content-secondary); display: flex; flex-direction: column; gap: var(--spacing-4); }
+
 /* 7. Off-day banner — amber note styling (like the GA4 data note) */
 .dca-banner {
   background: var(--accent-caution-light);

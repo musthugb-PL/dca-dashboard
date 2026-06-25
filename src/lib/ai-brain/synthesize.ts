@@ -57,6 +57,7 @@ const VERDICT_SCHEMA =
   `"recommended_action": "KILL"|"PAUSE"|"OPTIMIZE"|"SCALE"|"REMARKET"|"HOLD", ` +
   `"tactical_steps": [{"id": <int>, "text": <atomic action>, "channel": "meta"|"google"|"internal"|"cross"}], ` +
   `"strategic_context": <one paragraph>, "expected_outcome_template": <one editable sentence>, ` +
+  `"expected_outcome_options": [<3-5 short, MEASURABLE predictions the approver could pick, each with a number+timeframe, e.g. "Meta CPA drops below AED 50 within 5 days">], ` +
   `"confidence": "high"|"medium"|"low"}. Lens keys: internal, meta, google, ga4, last_week, market. ` +
   `Output 1-4 tactical_steps (HOLD: 0-1). Keep each step to <=2 sentences. ` +
   `CRITICAL — emit STRICTLY VALID JSON parseable by JSON.parse: escape every internal double-quote as \\", ` +
@@ -133,6 +134,9 @@ export async function synthesize(
       : [],
     strategic_context: String(data.strategic_context ?? ""),
     expected_outcome_template: String(data.expected_outcome_template ?? ""),
+    expected_outcome_options: Array.isArray(data.expected_outcome_options)
+      ? data.expected_outcome_options.slice(0, 5).map((s) => String(s))
+      : undefined,
     confidence: data.confidence ?? "low",
   };
 }

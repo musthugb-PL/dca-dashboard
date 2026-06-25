@@ -26,6 +26,9 @@ export type Verdict = {
   tactical_steps: TacticalStep[];
   strategic_context: string;
   expected_outcome_template: string;
+  /** AI-suggested options for the approver's "expected outcome" dropdown (B4).
+   *  Optional — absent on analyses persisted before Phase B; UI falls back. */
+  expected_outcome_options?: string[];
   confidence: Confidence;
 };
 

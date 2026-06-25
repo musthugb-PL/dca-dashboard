@@ -3,7 +3,6 @@ import { getEventReport, type EventReport } from "@/src/lib/data/events";
 import { getSupabase } from "@/lib/supabase";
 import { reviewWindow, daysSince } from "@/src/lib/slot";
 import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
-import { lensDotClass } from "@/src/lib/lens";
 import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
 import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/types";
 import { getPastDecisionsContext } from "@/src/lib/data/lens5";
@@ -210,48 +209,18 @@ export default async function EventReportPage({ params }: { params: { eventId: s
         {/* b2. Past decisions (Fix 6) — collapsed by default, above the lenses */}
         <PastDecisionsSection pd={pastDecisions} />
 
-        {/* c. Six lens sections */}
+        {/* c. Six lens sections (B1 rebuild) */}
         <div className="dca-lens-sections">
-          {LENSES.map((lens) => {
-            const lo = lensByKey.get(lens.key);
-            const score = lo ? lo.lens_score : null;
-            return (
-              <section key={lens.name} className="pl-card pl-card-elevated pl-card-padded">
-                <div className="dca-lens-head">
-                  <span className={`dca-lens-dot ${lensDotClass(score)}`} aria-hidden />
-                  <h2 className="t-title-sm">{lens.name}</h2>
-                  {lo && (
-                    <span className="dca-chip">
-                      score {lo.lens_score} · {lo.confidence}
-                    </span>
-                  )}
-                  <span className="dca-lens-window t-caption">{lens.window}</span>
-                </div>
-                <div className="dca-tiles">
-                  {lens.tiles.map((t, i) => (
-                    <MetricTile key={i} t={t} />
-                  ))}
-                </div>
-                {lo && lo.diagnosis_bullets.length > 0 ? (
-                  <ul className="dca-diag t-caption">
-                    {lo.diagnosis_bullets.map((b, i) => (
-                      <li key={i}>{b}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <ul className="dca-diag t-caption">
-                    <li>{analysis ? "No diagnosis bullets returned for this lens" : "Not analysed yet — run the AI brain"}</li>
-                  </ul>
-                )}
-                <p className="dca-ref-line t-caption">
-                  Cluster: {lo ? lo.cluster_benchmark_used : clusterLine(report)}
-                </p>
-                <p className="dca-ref-line t-caption" title="Analog = a specific similar event used as a direct comparison">
-                  Analog: {lo ? lo.analog_event_cited : analogLine(report, lens.name)}
-                </p>
-              </section>
-            );
-          })}
+          {LENSES.map((lens) => (
+            <LensCard
+              key={lens.name}
+              lens={lens}
+              lo={lensByKey.get(lens.key)}
+              hasAnalysis={!!analysis}
+              clusterFallback={clusterLine(report)}
+              analogFallback={analogLine(report, lens.name)}
+            />
+          ))}
         </div>
 
         {/* d. Verdict */}
@@ -435,6 +404,90 @@ function MetricTile({ t }: { t: Tile }) {
         </span>
       )}
     </div>
+  );
+}
+
+type LensDef = { name: string; key: LensName; window: string; tiles: Tile[] };
+
+/** lens_score → status label + traffic-light dot class (B1). */
+function lensStatus(score: number | null): { label: string; dot: string; cls: string } {
+  if (score == null) return { label: "NO DATA", dot: "dca-lens-dot--grey", cls: "nodata" };
+  if (score < 30) return { label: "HEALTHY", dot: "dca-lens-dot--green", cls: "healthy" };
+  if (score <= 60) return { label: "SOFTENING", dot: "dca-lens-dot--yellow", cls: "softening" };
+  return { label: "COLLAPSING", dot: "dca-lens-dot--red", cls: "collapsing" };
+}
+
+/** Direction of a diagnosis bullet → arrow glyph + colour class. */
+function proofDir(text: string): { arrow: string; dir: "up" | "down" | "flat" } {
+  const t = text.toLowerCase();
+  const down = /(below|down|fell|\bfall|drop|declin|collaps|\blag|worse|weaken|lower|under(perform|-)|missed|cratered|bleed|wasted|0 (tracked )?conv)/.test(t);
+  const up = /(above|\bup\b|rose|grew|grow|improv|beat|exceed|outperform|higher|strong|recover|accelerat)/.test(t);
+  if (down && !up) return { arrow: "▼", dir: "down" };
+  if (up && !down) return { arrow: "▲", dir: "up" };
+  return { arrow: "•", dir: "flat" };
+}
+
+/** B1: scannable lens card — status, metric tiles, 3 proof points, collapsible Why. */
+function LensCard({
+  lens, lo, hasAnalysis, clusterFallback, analogFallback,
+}: {
+  lens: LensDef;
+  lo: LensOutput | undefined;
+  hasAnalysis: boolean;
+  clusterFallback: string;
+  analogFallback: string;
+}) {
+  const score = lo ? lo.lens_score : null;
+  const st = lensStatus(score);
+  const bullets = lo?.diagnosis_bullets ?? [];
+  return (
+    <section className="pl-card pl-card-elevated pl-card-padded dca-lenscard">
+      <div className="dca-lens-head">
+        <span className={`dca-lens-dot ${st.dot}`} aria-hidden />
+        <h2 className="t-title-sm">{lens.name}</h2>
+        {lo && <span className="dca-chip">score {lo.lens_score} · {lo.confidence}</span>}
+        <span className="dca-spacer" />
+        <span className="dca-lens-window t-caption">{lens.window}</span>
+      </div>
+
+      <div className={`dca-lens-status dca-lens-status--${st.cls}`}>{st.label}</div>
+
+      <div className="dca-tiles">
+        {lens.tiles.map((t, i) => <MetricTile key={i} t={t} />)}
+      </div>
+
+      {bullets.length > 0 ? (
+        <ul className="dca-proof">
+          {bullets.slice(0, 3).map((b, i) => {
+            const p = proofDir(b);
+            return (
+              <li key={i} className="dca-proof-item">
+                <span className={`dca-proof-arrow dca-proof-arrow--${p.dir}`} aria-hidden>{p.arrow}</span>
+                <span>{b.length > 120 ? b.slice(0, 120) + "…" : b}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="dca-proof-empty t-caption">
+          {hasAnalysis ? "No diagnosis returned for this lens" : "Not analysed yet — run the AI brain"}
+        </p>
+      )}
+
+      {bullets.length > 0 && (
+        <details className="dca-why">
+          <summary className="dca-why-summary t-caption">Why — full diagnosis</summary>
+          <ul className="dca-why-list t-caption">
+            {bullets.map((b, i) => <li key={i}>{b}</li>)}
+          </ul>
+        </details>
+      )}
+
+      <p className="dca-ref-line t-caption">Cluster: {lo ? lo.cluster_benchmark_used : clusterFallback}</p>
+      <p className="dca-ref-line t-caption" title="Analog = a specific similar event used as a direct comparison">
+        Analog: {lo ? lo.analog_event_cited : analogFallback}
+      </p>
+    </section>
   );
 }
 
