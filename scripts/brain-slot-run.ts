@@ -10,7 +10,7 @@ import { loadEnvConfig } from "@next/env";
 import { getSupabase } from "../lib/supabase";
 import { runBrain } from "../src/lib/ai-brain/run-brain";
 import { saveBrainAnalysis } from "../src/lib/ai-brain/persist";
-import { isoDate, addDays, daysSince, type Slot } from "../src/lib/slot";
+import { reviewWindow, daysSince, type Slot } from "../src/lib/slot";
 
 const ACTIVE_MIN_DAYS = 7;
 
@@ -18,8 +18,7 @@ async function main() {
   loadEnvConfig(process.cwd());
   const slot = (Number(process.argv[2] ?? 2) as Slot);
   const today = new Date();
-  const dateTo = isoDate(today);
-  const dateFrom = isoDate(addDays(today, -7));
+  const { dateFrom, dateTo } = reviewWindow(today); // last 7 full days ending yesterday
 
   const sb = getSupabase();
   const { data, error } = await sb

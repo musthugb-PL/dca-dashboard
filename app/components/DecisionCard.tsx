@@ -29,7 +29,7 @@ function StatusPill({ status }: { status: string | null }) {
 }
 
 export default function DecisionCard({ card }: { card: ReviewCard }) {
-  const { row, primaryEventId, daysSinceLaunch, report, error, analysis } = card;
+  const { row, primaryEventId, daysSinceLaunch, report, error, analysis, tooNew } = card;
   const ids = row.event_ids ?? [primaryEventId];
   const isFestival = ids.length > 1;
 
@@ -73,7 +73,14 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
 
       {/* AI brain summary (P2.2): recommended action verb + one-line reason */}
       <div className="dca-ai-row">
-        {verb ? (
+        {tooNew ? (
+          <>
+            <span className="dca-ai-verb dca-ai-verb--pending">Too new — HOLD</span>
+            <span className="dca-ai-reason t-caption">
+              Campaign &lt; 7 days old — no AI run yet (let it stabilise)
+            </span>
+          </>
+        ) : verb ? (
           <>
             <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()}`}>{verb}</span>
             <span className="dca-ai-reason t-caption">

@@ -396,11 +396,13 @@ async function getWinningSegments(
 }
 
 /**
- * Fix 4: the CURRENT event's own ad-set/ad granularity over the window.
- * Meta (dca_v_meta_ads, ad_name level): top 5 by ROAS + worst 3 by CPA.
- * Google (dca_v_google_ads, campaign×ad_group): top 5 by conversions + worst 3
- * by cost-per-conversion. spend >= 50 AED filter drops noise. Lets the AI cite
- * "kill ad set X / scale ad set Y" with real names + numbers (within-event only).
+ * Fix 4 + Fix 3: the CURRENT event's own ad-set/ad-group granularity.
+ * Meta: REAL audience-typed ad-set names from channels_3_campaign_level_llm.ad_group
+ * (e.g. "LALs-X-Arabic", "Remarketing", "DBs") — same source as the Marketing
+ * Insights dashboard. (We previously used dca_v_meta_ads.ad_name, which is the
+ * creative-variant code — wrong grain.) Google: dca_v_google_ads campaign×ad_group
+ * (channels_3 google ad_group is "-"). spend >= 25 AED drops noise. Lets the AI
+ * cite "kill ad set X / scale ad set Y" with real names + numbers (within-event).
  */
 export async function getOwnSegments(
   eventId: number,
@@ -410,48 +412,40 @@ export async function getOwnSegments(
   const sb = getSupabase();
   const result: OwnSegments = { meta: { top: [], bottom: [] }, google: { top: [], bottom: [] } };
 
-  // --- Meta: group by (campaign, ad_name) ---
+  // --- Meta: real ad-set names from channels_3.ad_group (fb & instagram rows) ---
   try {
-    const { data } = await sb
-      .from("dca_v_meta_ads")
-      .select("campaign,ad_name,spend_aed,impressions,clicks,custom_conversions,purchase_value_aed,frequency")
-      .ilike("campaign", `*_${eventId}_*`)
-      .gte("date", dateFrom)
-      .lte("date", dateTo)
-      .limit(3000);
-    type M = { spend: number; impr: number; clicks: number; conv: number; rev: number; freqSum: number; freqN: number; campaign: string; ad_name: string };
-    const g = new Map<string, M>();
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
-      const ad_name = String(r.ad_name ?? "");
-      if (!ad_name) continue; // ad_name IS NOT NULL
-      const campaign = String(r.campaign ?? "");
-      const k = campaign + "||" + ad_name;
-      const m = g.get(k) ?? { spend: 0, impr: 0, clicks: 0, conv: 0, rev: 0, freqSum: 0, freqN: 0, campaign, ad_name };
-      m.spend += Number(r.spend_aed ?? 0);
-      m.impr += Number(r.impressions ?? 0);
-      m.clicks += Number(r.clicks ?? 0);
-      m.conv += Number(r.custom_conversions ?? 0);
-      m.rev += Number(r.purchase_value_aed ?? 0);
-      if (r.frequency != null) { m.freqSum += Number(r.frequency); m.freqN++; }
-      g.set(k, m);
-    }
-    const rows: AdSet[] = Array.from(g.values())
-      .filter((m) => m.spend >= 50)
-      .map((m) => ({
-        source: "meta" as const,
-        name: m.ad_name,
-        campaign: m.campaign || null,
-        spend_aed: m.spend,
-        ctr: m.impr > 0 ? m.clicks / m.impr : null,
-        conversions: m.conv,
-        roas: m.spend > 0 ? m.rev / m.spend : null,
-        cpa: m.conv > 0 ? m.spend / m.conv : null,
-        frequency: m.freqN > 0 ? m.freqSum / m.freqN : null,
-        conversion_rate: null,
-      }));
-    result.meta.top = [...rows].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0)).slice(0, 5);
-    result.meta.bottom = rows
-      .filter((r) => (r.conversions ?? 0) > 0 && r.cpa != null)
+    const rows = await bq.query<Record<string, unknown>>(
+      `SELECT ad_group,
+              SUM(spend_aed) AS spend, SUM(impressions) AS impr, SUM(clicks) AS clicks,
+              SUM(total_quantity) AS tix, SUM(total_revenue_aed) AS rev
+       FROM \`${BQ_PROJECT}.${BQ_DATASET}.channels_3_campaign_level_llm\`
+       WHERE event_id = @eid AND date BETWEEN @from AND @to
+         AND REGEXP_CONTAINS(LOWER(source), r'fb|facebook|instagram|meta')
+         AND ad_group IS NOT NULL AND ad_group != '-'
+       GROUP BY ad_group`,
+      { eid: String(eventId), from: dateFrom, to: dateTo },
+    );
+    const ads: AdSet[] = rows
+      .map((r) => {
+        const spend = Number(r.spend ?? 0), impr = Number(r.impr ?? 0), clicks = Number(r.clicks ?? 0);
+        const tix = Number(r.tix ?? 0), rev = Number(r.rev ?? 0);
+        return {
+          source: "meta" as const,
+          name: String(r.ad_group),
+          campaign: null, // audience IS the ad-set name now
+          spend_aed: spend,
+          ctr: impr > 0 ? clicks / impr : null,
+          conversions: tix,
+          roas: spend > 0 ? rev / spend : null,
+          cpa: tix > 0 ? spend / tix : null,
+          frequency: null, // not available at channels_3 grain
+          conversion_rate: null,
+        };
+      })
+      .filter((a) => a.spend_aed >= 25);
+    result.meta.top = [...ads].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0)).slice(0, 5);
+    result.meta.bottom = ads
+      .filter((a) => (a.conversions ?? 0) > 0 && a.cpa != null)
       .sort((a, b) => (b.cpa ?? 0) - (a.cpa ?? 0))
       .slice(0, 3);
   } catch {
@@ -482,7 +476,7 @@ export async function getOwnSegments(
     }
     const shortGroup = (ag: string) => ag.replace(/^customers\/\d+\/adGroups\//, ""); // raw ad_group is a resource path
     const rows: AdSet[] = Array.from(g.values())
-      .filter((m) => m.spend >= 50)
+      .filter((m) => m.spend >= 25)
       .map((m) => ({
         source: "google" as const,
         name: `${m.campaign} › ${shortGroup(m.ad_group)}`,

@@ -14,7 +14,7 @@ import {
   getLatestBrainAnalysis,
   getBrainAnalysesForSlot,
 } from "../src/lib/ai-brain/persist";
-import { isoDate, addDays, type Slot } from "../src/lib/slot";
+import { reviewWindow, type Slot } from "../src/lib/slot";
 
 const EVENT_ID = Number(process.argv[2] ?? 106484);
 const SLOT = (Number(process.argv[3] ?? 2) as Slot);
@@ -25,8 +25,7 @@ async function main() {
   // Match the report page's window exactly (today-7 → today) so the rendered
   // KPI tiles and the AI diagnosis bullets describe the same 7 days.
   const today = new Date();
-  const dateTo = isoDate(today);
-  const dateFrom = isoDate(addDays(today, -7));
+  const { dateFrom, dateTo } = reviewWindow(today); // last 7 full days ending yesterday
 
   console.log(`Running brain for ${EVENT_ID}, window ${dateFrom} → ${dateTo} (slot ${SLOT})…`);
   const t0 = Date.now();

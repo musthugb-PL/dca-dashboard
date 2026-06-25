@@ -16,6 +16,21 @@ import type { LensName, LensOutput, Severity, Confidence } from "./types";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const pctn = (n: number) => Math.round(n * 10000) / 100; // ratio → % with 2dp
 
+/** Internal lens window = 3d vs prior 3d (CLAUDE.md). Computed from the daily
+ *  sales series (sorted desc, recent 3 data-days vs the 3 before). */
+function internal3d(report: EventReport): {
+  recent_sales: number; prior_sales: number; recent_tickets: number; prior_tickets: number;
+} | null {
+  const daily = [...(report.sales.daily ?? [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (daily.length < 2) return null;
+  const recent = daily.slice(0, 3), prior = daily.slice(3, 6);
+  const sum = (arr: typeof daily, k: "rev" | "tickets") => arr.reduce((s, d) => s + (Number(d[k]) || 0), 0);
+  return {
+    recent_sales: sum(recent, "rev"), prior_sales: sum(prior, "rev"),
+    recent_tickets: sum(recent, "tickets"), prior_tickets: sum(prior, "tickets"),
+  };
+}
+
 function clusterStr(report: EventReport): string {
   const c = report.clusterBaseline;
   if (!c || !c.matched) return "none available";
@@ -42,7 +57,7 @@ export function ownSegmentsStr(report: EventReport, source: "meta" | "google"): 
   const fmt = source === "meta" ? fmtMeta : fmtGoogle;
   const top = seg.top.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
   const bottom = seg.bottom.map((a, i) => `  ${i + 1}. ${fmt(a)}`).join("\n") || "  (none)";
-  return `top by ${source === "meta" ? "ROAS" : "conversions"}:\n${top}\nworst (${source === "meta" ? "highest CPA" : "highest cost/conv"}, spend>50 AED):\n${bottom}`;
+  return `top by ${source === "meta" ? "ROAS" : "conversions"}:\n${top}\nworst (${source === "meta" ? "highest CPA" : "highest cost/conv"}, spend>25 AED):\n${bottom}`;
 }
 
 export function segmentsStr(report: EventReport): string {
@@ -84,25 +99,33 @@ const SCHEMA =
   `Scoring: 0-29 green (healthy), 30-60 yellow (contributing factor), 61-100 red (primary cause). ` +
   `Every bullet must cite a number from the data; if you lack data for a point, write "no data for <x>". ` +
   `LEAD the FIRST diagnosis bullet with the strongest benchmark comparison available — cluster baseline, WoW delta, OR an analog/sibling citation — whichever has the most-citable gap, in the form ` +
-  `"CTR 3.21% is 47% below the Arabic Events/mid cluster (6.0%, n=111)" or "ROAS 8.3x lags Atif Aslam analog (16.4x) by 50%", NOT "CTR is dropping". ` +
-  `If no benchmark data exists at all, say so plainly in the first bullet.`;
+  `"CTR 3.21% is 47% below the Arabic Events mid-price cluster (6.0%)" or "ROAS 8.3x lags the Atif Aslam analog (16.4x) by 50%", NOT "CTR is dropping". ` +
+  `For "cluster_benchmark_used", write it as a plain-English sentence a manager can read, e.g. ` +
+  `2.33% CTR is the average across 111 similar Arabic Events at mid price band — NOT a code like Arabic Events/mid (n=111). ` +
+  `If no benchmark data exists at all, say so plainly in the first bullet. ` +
+  `CRITICAL — emit STRICTLY VALID JSON parseable by JSON.parse: escape every internal double-quote as \\", ` +
+  `put NO literal newline inside any string value, and avoid double quotes inside strings (use single quotes for names).`;
 
 type LensCfg = { window: string; rubric: string; data: (r: EventReport) => Record<string, unknown> };
 
 const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
   internal: {
-    window: "current 7d vs prior 7d",
+    window: "3d vs prior 3d",
     rubric:
-      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge sales trajectory vs prior week, marketing ticket share, and whether ads are pulling their weight. High score = event-level demand problem (not the ads).",
-    data: (r) => ({
-      sales_aed: r2(r.kpis.total_sales_aed),
-      prior_sales_aed: r.deltas ? r2(r.deltas.total_sales.prior) : null,
-      tickets: r.kpis.tickets_sold,
-      prior_tickets: r.deltas ? r.deltas.tickets.prior : null,
-      marketing_ticket_share_pct: pctn(r.kpis.tickets_sold ? r.ads_performance.tickets / r.kpis.tickets_sold : 0),
-      total_roas: r2(r.kpis.total_roas),
-      avg_ticket_price_aed: r2(r.kpis.avg_ticket_price),
-    }),
+      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge the 3-day sales trajectory vs the prior 3 days, marketing ticket share, and whether ads are pulling their weight. High score = event-level demand problem (not the ads).",
+    data: (r) => {
+      const t = internal3d(r);
+      return {
+        sales_3d_aed: t ? r2(t.recent_sales) : null,
+        prior_3d_sales_aed: t ? r2(t.prior_sales) : null,
+        tickets_3d: t ? t.recent_tickets : null,
+        prior_3d_tickets: t ? t.prior_tickets : null,
+        sales_7d_aed_for_context: r2(r.kpis.total_sales_aed),
+        marketing_ticket_share_pct: pctn(r.kpis.tickets_sold ? r.ads_performance.tickets / r.kpis.tickets_sold : 0),
+        total_roas: r2(r.kpis.total_roas),
+        avg_ticket_price_aed: r2(r.kpis.avg_ticket_price),
+      };
+    },
   },
   meta: {
     window: "current 7d vs prior 7d",
@@ -184,7 +207,7 @@ async function runHaikuLens(lens: Exclude<LensName, "market">, report: EventRepo
     `${cfg.rubric}\n\nEVENT: ${eventName}\nWINDOW: ${cfg.window}\n` +
     `DATA: ${JSON.stringify(cfg.data(report))}\n` +
     `CLUSTER BASELINE: ${clusterStr(report)}\nANALOGS: ${analogStr(report)}\n\n${SCHEMA}`;
-  const { data } = await chatJSON<Partial<LensOutput>>({ model: "haiku", system: MASTER_SYSTEM, user, maxTokens: 1000 });
+  const { data } = await chatJSON<Partial<LensOutput>>({ model: "haiku", system: MASTER_SYSTEM, user, maxTokens: 1200 });
   return coerce(lens, data);
 }
 
@@ -206,7 +229,7 @@ async function runMarketLens(report: EventReport, eventName: string): Promise<Le
       `Only cite factors actually present in the scan.\n\n` +
       `CURRENTLY-RUNNING AFFINITY SIBLINGS (competitive context — same audience, live now): ${siblingsStr(report)}\n\n` +
       `MARKET SCAN:\n${scan.content}\n\n${SCHEMA}`,
-    maxTokens: 1000,
+    maxTokens: 1200,
   });
   return coerce("market", data);
 }

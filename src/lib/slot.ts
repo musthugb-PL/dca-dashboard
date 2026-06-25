@@ -39,6 +39,16 @@ export function addDays(d: Date, n: number): Date {
   return c;
 }
 
+/**
+ * THE review window: the last 7 FULL days ending YESTERDAY. Today is excluded
+ * because it's a partial day (incomplete spend/sales). Single source of truth —
+ * dashboard, report page, brain runs, and red-flag detection all use this.
+ * e.g. today 2026-06-25 → { dateFrom: 2026-06-18, dateTo: 2026-06-24 }.
+ */
+export function reviewWindow(today: Date = new Date()): { dateFrom: string; dateTo: string } {
+  return { dateFrom: isoDate(addDays(today, -7)), dateTo: isoDate(addDays(today, -1)) };
+}
+
 /** Whole days between two ISO dates (b − a). Null-safe on bad input. */
 export function daysSince(startIso: string | null, today: Date): number | null {
   if (!startIso) return null;

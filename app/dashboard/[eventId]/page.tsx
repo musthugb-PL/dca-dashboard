@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getEventReport, type EventReport } from "@/src/lib/data/events";
 import { getSupabase } from "@/lib/supabase";
-import { isoDate, addDays, daysSince } from "@/src/lib/slot";
+import { reviewWindow, daysSince } from "@/src/lib/slot";
 import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { lensDotClass } from "@/src/lib/lens";
 import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
@@ -35,8 +35,7 @@ function wowCmp(d: { pct: number } | null | undefined, goodUp: boolean): Wow | u
 
 export default async function EventReportPage({ params }: { params: { eventId: string } }) {
   const today = new Date();
-  const dateTo = isoDate(today);
-  const dateFrom = isoDate(addDays(today, -7));
+  const { dateFrom, dateTo } = reviewWindow(today); // last 7 full days ending yesterday
 
   let report: EventReport | null = null;
   let error: string | null = null;
@@ -148,7 +147,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
     { label: "Checkout", value: intFmt(f.users_with_checkout) },
     { label: "Purchase", value: intFmt(f.users_with_purchase) },
   ];
-  const narrativeTiles: Tile[] = [{ label: "Source", value: "AI narrative below" }];
+  const narrativeTiles: Tile[] = [{ label: "Source", value: "Overall market read below" }];
 
   // Lens key → persisted lens output (if the brain has been run for this event).
   const lensByKey = new Map<LensName, LensOutput>(
@@ -247,7 +246,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
                 <p className="dca-ref-line t-caption">
                   Cluster: {lo ? lo.cluster_benchmark_used : clusterLine(report)}
                 </p>
-                <p className="dca-ref-line t-caption">
+                <p className="dca-ref-line t-caption" title="Analog = a specific similar event used as a direct comparison">
                   Analog: {lo ? lo.analog_event_cited : analogLine(report, lens.name)}
                 </p>
               </section>

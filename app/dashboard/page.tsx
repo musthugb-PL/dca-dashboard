@@ -8,8 +8,7 @@ import {
   slotForDate,
   slotDayLabel,
   mostRecentSlot,
-  isoDate,
-  addDays,
+  reviewWindow,
   type Slot,
 } from "@/src/lib/slot";
 
@@ -21,8 +20,8 @@ const SLOT_PILLS: ReadonlyArray<[Slot, string]> = [
 ];
 
 function windowDates() {
-  const today = new Date();
-  return { from: isoDate(addDays(today, -7)), to: isoDate(today) };
+  const { dateFrom, dateTo } = reviewWindow(new Date());
+  return { from: dateFrom, to: dateTo };
 }
 
 function cacheKey(slot: Slot, from: string, to: string) {

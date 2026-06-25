@@ -8,7 +8,7 @@
 
 import { getSupabase } from "@/lib/supabase";
 import { getEventReport, type EventReport, type ReportOptions } from "./events";
-import { type Slot, isoDate, addDays, daysSince } from "@/src/lib/slot";
+import { type Slot, reviewWindow, daysSince } from "@/src/lib/slot";
 import { ruleToLens } from "@/src/lib/red-flags";
 import { getBrainAnalysesForSlot } from "@/src/lib/ai-brain/persist";
 import type { BrainAnalysis } from "@/src/lib/ai-brain/types";
@@ -41,6 +41,8 @@ export type ReviewCard = {
   flags: CardFlags;
   /** Persisted AI-brain analysis for today's slot run, or null if not yet run. */
   analysis: BrainAnalysis | null;
+  /** Running but <7 days old: shown as "Too new — HOLD", no AI run (CLAUDE.md). */
+  tooNew: boolean;
 };
 
 type FlagRow = { event_id: string; rule_key: string; severity: string };
@@ -97,7 +99,7 @@ export type ReviewCardsResult = {
   slot: Slot;
   dateFrom: string;
   dateTo: string;
-  counts: { totalInSlot: number; running: number; eligible: number };
+  counts: { totalInSlot: number; running: number; eligible: number; tooNew: number };
   cards: ReviewCard[];
 };
 
@@ -109,8 +111,7 @@ export async function getReviewCards(
   reportOpts: ReportOptions = {},
 ): Promise<ReviewCardsResult> {
   const sb = getSupabase();
-  const dateTo = isoDate(today);
-  const dateFrom = isoDate(addDays(today, -7));
+  const { dateFrom, dateTo } = reviewWindow(today); // last 7 FULL days ending yesterday
 
   const { data, error } = await sb
     .from("dca_campaign_ledger")
@@ -126,45 +127,43 @@ export async function getReviewCards(
     const d = daysSince(r.campaign_start_date, today);
     return d !== null && d >= ACTIVE_MIN_DAYS;
   });
+  // Running but <7 days old → show with a "Too new — HOLD" badge, no AI run.
+  const tooNewRows = running.filter((r) => {
+    const d = daysSince(r.campaign_start_date, today);
+    return d !== null && d < ACTIVE_MIN_DAYS;
+  });
 
-  // All event_ids across eligible rows (festivals contribute their whole array)
-  // → fetch today's Red Flags once, attach per card.
-  const allIds = Array.from(
-    new Set(eligible.flatMap((r) => r.event_ids ?? [r.event_id])),
-  );
+  // Red Flags + AI analyses only for eligible (7+ day) campaigns.
+  const allIds = Array.from(new Set(eligible.flatMap((r) => r.event_ids ?? [r.event_id])));
   const flagMap = await fetchFlagsForSlot(sb, slot, today, allIds);
-  // Today's persisted AI analyses for this slot (best-effort overlay — keyed by
-  // the card's primary event_id). Empty until the brain has been run for a card.
   const analysisMap = await getBrainAnalysesForSlot(slot, allIds, today);
 
-  const cards: ReviewCard[] = await Promise.all(
-    eligible.map(async (row): Promise<ReviewCard> => {
-      const primaryEventId = row.event_ids?.[0] ?? row.event_id;
-      const daysSinceLaunch = daysSince(row.campaign_start_date, today);
-      const flags = computeCardFlags(row.event_ids ?? [primaryEventId], flagMap);
-      const analysis = analysisMap.get(primaryEventId) ?? null;
-      try {
-        const report = await getEventReport(Number(primaryEventId), dateFrom, dateTo, reportOpts);
-        return { row, primaryEventId, daysSinceLaunch, report, error: null, flags, analysis };
-      } catch (e) {
-        return {
-          row,
-          primaryEventId,
-          daysSinceLaunch,
-          report: null,
-          error: e instanceof Error ? e.message : String(e),
-          flags,
-          analysis,
-        };
-      }
-    }),
-  );
+  const buildCard = async (row: LedgerRow, tooNew: boolean): Promise<ReviewCard> => {
+    const primaryEventId = row.event_ids?.[0] ?? row.event_id;
+    const daysSinceLaunch = daysSince(row.campaign_start_date, today);
+    const flags = computeCardFlags(row.event_ids ?? [primaryEventId], flagMap);
+    const analysis = tooNew ? null : analysisMap.get(primaryEventId) ?? null;
+    try {
+      const report = await getEventReport(Number(primaryEventId), dateFrom, dateTo, reportOpts);
+      return { row, primaryEventId, daysSinceLaunch, report, error: null, flags, analysis, tooNew };
+    } catch (e) {
+      return {
+        row, primaryEventId, daysSinceLaunch, report: null,
+        error: e instanceof Error ? e.message : String(e), flags, analysis, tooNew,
+      };
+    }
+  };
+
+  const cards: ReviewCard[] = await Promise.all([
+    ...eligible.map((r) => buildCard(r, false)),
+    ...tooNewRows.map((r) => buildCard(r, true)),
+  ]);
 
   return {
     slot,
     dateFrom,
     dateTo,
-    counts: { totalInSlot: rows.length, running: running.length, eligible: eligible.length },
+    counts: { totalInSlot: rows.length, running: running.length, eligible: eligible.length, tooNew: tooNewRows.length },
     cards,
   };
 }

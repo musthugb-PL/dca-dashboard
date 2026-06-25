@@ -40,6 +40,7 @@ export async function runRedFlagDetection(today: Date = new Date()): Promise<Red
   let scanned = 0;
 
   for (const c of cards) {
+    if (c.tooNew) continue; // new campaigns (<7d) never fire red flags (CLAUDE.md)
     if (!c.report) continue;
     scanned++;
     for (const f of detectRedFlags(c.report)) {

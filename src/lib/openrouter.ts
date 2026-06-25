@@ -106,6 +106,10 @@ export async function chatJSON<T>(args: ChatArgs): Promise<{ data: T; usage: Usa
     const parsed = tryParse<T>(res.content);
     if (parsed !== undefined) return { data: parsed, usage: res.usage };
     lastErr = `attempt ${attempt + 1} produced unparseable JSON`;
+    if (process.env.JSON_DEBUG === "1") {
+      const c = res.content;
+      console.error(`[JSON_DEBUG] len=${c.length} tail=${JSON.stringify(c.slice(-180))}`);
+    }
   }
   throw new Error(`chatJSON: ${lastErr} after ${reminders.length} attempts`);
 }
