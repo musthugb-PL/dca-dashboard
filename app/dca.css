@@ -235,6 +235,52 @@
 .dca-why-summary { cursor: pointer; color: var(--poodle-40); }
 .dca-why-list { margin: var(--spacing-8) 0 0; padding-left: var(--spacing-16); color: var(--content-secondary); display: flex; flex-direction: column; gap: var(--spacing-4); }
 
+/* B2 — sticky decision header */
+.dca-sticky {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-16);
+  flex-wrap: wrap; margin: var(--spacing-16) 0;
+  padding: var(--spacing-12) var(--spacing-16);
+  background: var(--bg-floating); border: 1px solid var(--aussie-90);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.dca-sticky-main { display: flex; align-items: center; gap: var(--spacing-12); min-width: 0; }
+.dca-sticky-verb { font-size: var(--font-size-sm); padding: var(--spacing-4) var(--spacing-12); }
+.dca-sticky-meta { display: flex; flex-direction: column; gap: var(--spacing-2); min-width: 0; }
+.dca-sticky-meta .t-body-sm-strong { color: var(--content-primary); }
+.dca-sticky-meta .t-caption { color: var(--content-secondary); }
+.dca-sticky-actions { display: flex; gap: var(--spacing-8); flex: none; }
+
+/* REMARKET → purple/blue intent (distinct from optimize); PAUSE stays amber/orange */
+.dca-ai-verb.dca-ai-verb--remarket { background: var(--poodle-90, var(--bg-secondary)); color: var(--poodle-40); }
+
+/* B4 — per-step approve/override */
+.dca-manual-review {
+  margin: var(--spacing-12) 0; padding: var(--spacing-12) var(--spacing-16);
+  background: var(--accent-alert-light); border-left: 4px solid var(--accent-alert);
+  border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: var(--spacing-4);
+}
+.dca-manual-review-title { color: var(--accent-alert); }
+.dca-steps { display: flex; flex-direction: column; gap: var(--spacing-12); margin: var(--spacing-16) 0; }
+.dca-step {
+  padding: var(--spacing-12); border: 1px solid var(--aussie-90); border-radius: var(--radius-sm);
+  background: var(--bg-secondary); display: flex; flex-direction: column; gap: var(--spacing-8);
+}
+.dca-step--approved { border-color: var(--accent-success); }
+.dca-step--dismissed { border-color: var(--accent-alert); opacity: 0.85; }
+.dca-step-body { color: var(--content-primary); }
+.dca-step-actions { display: flex; gap: var(--spacing-8); }
+.dca-override { display: flex; flex-direction: column; gap: var(--spacing-6); margin-top: var(--spacing-4); }
+.dca-final-action { display: flex; flex-direction: column; gap: var(--spacing-6); margin: var(--spacing-12) 0; }
+.dca-select, .dca-input {
+  width: 100%; max-width: 480px; padding: var(--spacing-8) var(--spacing-12);
+  border: 1px solid var(--bg-border); border-radius: var(--radius-sm);
+  background: var(--bg-floating); color: var(--content-primary);
+  font-family: inherit; font-size: var(--font-size-sm);
+}
+.dca-select:disabled, .dca-input:disabled { background: var(--interaction-disable-bg); color: var(--interaction-disable-content); cursor: not-allowed; }
+
 /* 7. Off-day banner — amber note styling (like the GA4 data note) */
 .dca-banner {
   background: var(--accent-caution-light);

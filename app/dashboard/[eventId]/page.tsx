@@ -8,6 +8,7 @@ import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/typ
 import { getPastDecisionsContext } from "@/src/lib/data/lens5";
 import type { PastDecisions } from "@/src/lib/data/events";
 import DeltaPill from "@/app/components/DeltaPill";
+import DecisionFlow from "@/app/components/DecisionFlow";
 
 export const dynamic = "force-dynamic";
 
@@ -61,17 +62,19 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   let manager: string | null = null;
   let eventIds: string[] = [params.eventId];
   let daysRunning: number | null = null;
+  let slot: number | null = null;
   try {
     const sb = getSupabase();
     const { data } = await sb
       .from("dca_campaign_ledger")
-      .select("primary_campaign_manager,event_ids,campaign_start_date")
+      .select("primary_campaign_manager,event_ids,campaign_start_date,review_slot")
       .eq("event_id", params.eventId)
       .maybeSingle();
     if (data) {
       manager = data.primary_campaign_manager ?? null;
       eventIds = data.event_ids ?? [params.eventId];
       daysRunning = daysSince(data.campaign_start_date, today);
+      slot = data.review_slot != null ? Number(data.review_slot) : null;
     }
   } catch {
     /* ledger lookup is best-effort for the header */
@@ -195,99 +198,36 @@ export default async function EventReportPage({ params }: { params: { eventId: s
           <span>window {dateFrom} → {dateTo}</span>
         </div>
 
-        {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
-        <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
-          <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
-          <div className="dca-report-grid">
-            <KpiTile label="Sales" value={aed(report.kpis.total_sales_aed)} d={report.deltas?.total_sales.pct} goodUp />
-            <KpiTile label="Spend" value={aed(report.kpis.total_spend_aed)} d={report.deltas?.total_spend.pct} goodUp={false} />
-            <KpiTile label="ROAS" value={roasFmt(report.kpis.total_roas)} d={report.deltas?.total_roas.pct} goodUp />
-            <KpiTile label="Tickets" value={intFmt(report.kpis.tickets_sold)} d={report.deltas?.tickets.pct} goodUp />
+        {/* B2 sticky header + B4 verdict wrap the KPI strip, timeline, and lenses */}
+        <DecisionFlow verdict={analysis?.verdict ?? null} eventId={params.eventId} slot={slot}>
+          {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
+          <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
+            <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
+            <div className="dca-report-grid">
+              <KpiTile label="Sales" value={aed(report.kpis.total_sales_aed)} d={report.deltas?.total_sales.pct} goodUp />
+              <KpiTile label="Spend" value={aed(report.kpis.total_spend_aed)} d={report.deltas?.total_spend.pct} goodUp={false} />
+              <KpiTile label="ROAS" value={roasFmt(report.kpis.total_roas)} d={report.deltas?.total_roas.pct} goodUp />
+              <KpiTile label="Tickets" value={intFmt(report.kpis.tickets_sold)} d={report.deltas?.tickets.pct} goodUp />
+            </div>
+          </section>
+
+          {/* b2. Past decisions timeline */}
+          <PastDecisionsSection pd={pastDecisions} />
+
+          {/* c. Six lens sections (B1 rebuild) */}
+          <div className="dca-lens-sections">
+            {LENSES.map((lens) => (
+              <LensCard
+                key={lens.name}
+                lens={lens}
+                lo={lensByKey.get(lens.key)}
+                hasAnalysis={!!analysis}
+                clusterFallback={clusterLine(report)}
+                analogFallback={analogLine(report, lens.name)}
+              />
+            ))}
           </div>
-        </section>
-
-        {/* b2. Past decisions (Fix 6) — collapsed by default, above the lenses */}
-        <PastDecisionsSection pd={pastDecisions} />
-
-        {/* c. Six lens sections (B1 rebuild) */}
-        <div className="dca-lens-sections">
-          {LENSES.map((lens) => (
-            <LensCard
-              key={lens.name}
-              lens={lens}
-              lo={lensByKey.get(lens.key)}
-              hasAnalysis={!!analysis}
-              clusterFallback={clusterLine(report)}
-              analogFallback={analogLine(report, lens.name)}
-            />
-          ))}
-        </div>
-
-        {/* d. Verdict */}
-        <section className="pl-card pl-card-elevated pl-card-padded dca-verdict">
-          <h2 className="t-title-base">Verdict</h2>
-
-          {analysis ? (
-            <>
-              <div className="dca-verdict-action">
-                <span className={`dca-ai-verb dca-ai-verb--${analysis.verdict.recommended_action.toLowerCase()}`}>
-                  {analysis.verdict.recommended_action}
-                </span>
-                <span className="dca-lens-window t-caption">
-                  {verdictLensLine(analysis)} · AI confidence {analysis.verdict.confidence}
-                </span>
-              </div>
-
-              <div className="dca-checklist">
-                {analysis.verdict.tactical_steps.length > 0 ? (
-                  analysis.verdict.tactical_steps.map((s) => (
-                    <label key={s.id} className="dca-check-row t-body-sm-short">
-                      <input type="checkbox" disabled />
-                      <span>
-                        <span className="dca-chip">{s.channel}</span> {s.text}
-                      </span>
-                    </label>
-                  ))
-                ) : (
-                  <p className="t-caption">No tactical steps returned.</p>
-                )}
-              </div>
-
-              <p className="dca-strategic t-body-sm-short">
-                {analysis.verdict.strategic_context || "No strategic context returned."}
-              </p>
-
-              <div className="dca-outcome">
-                <label className="t-label-sm">Expected outcome (required before approve — P2.3)</label>
-                <textarea
-                  disabled
-                  defaultValue={analysis.verdict.expected_outcome_template}
-                  placeholder="AI-suggested prediction will seed this field"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="dca-verdict-action">
-                <span className="dca-ai-verb dca-ai-verb--pending">Not analysed</span>
-                <span className="dca-lens-window t-caption">Run the AI brain for this event</span>
-              </div>
-              <p className="dca-strategic t-body-sm-short">
-                No persisted analysis for this event yet.
-              </p>
-            </>
-          )}
-
-          <div className="dca-verdict-actions">
-            {/* Approve / Override flow ships in P2.3 */}
-            <button type="button" className="pl-btn pl-btn-primary pl-btn-m" disabled>
-              Approve
-            </button>
-            <button type="button" className="pl-btn pl-btn-outline pl-btn-m" disabled>
-              Override
-            </button>
-          </div>
-        </section>
+        </DecisionFlow>
       </div>
     </main>
   );
@@ -489,25 +429,6 @@ function LensCard({
       </p>
     </section>
   );
-}
-
-const LENS_LABEL: Record<LensName, string> = {
-  internal: "Internal",
-  meta: "Meta",
-  google: "Google",
-  ga4: "GA4",
-  last_week: "Last week",
-  market: "Market",
-};
-
-/** "Primary: Meta · Contributing: Internal, GA4" line under the verdict verb. */
-function verdictLensLine(analysis: BrainAnalysis): string {
-  const v = analysis.verdict;
-  const primary = v.primary_lens ? `Primary: ${LENS_LABEL[v.primary_lens]}` : "No single primary lens";
-  const contributing = v.contributing_lenses.length
-    ? ` · Contributing: ${v.contributing_lenses.map((k) => LENS_LABEL[k]).join(", ")}`
-    : "";
-  return primary + contributing;
 }
 
 function clusterLine(report: EventReport): string {
