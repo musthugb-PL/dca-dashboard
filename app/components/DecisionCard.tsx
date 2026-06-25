@@ -3,6 +3,7 @@ import type { ReviewCard, LensSeverity } from "@/src/lib/data/dashboard";
 import { aed, intFmt, roasFmt } from "@/src/lib/format";
 import { LENS_NAMES } from "@/src/lib/lens";
 import { cardReason } from "@/src/lib/ai-brain/summary";
+import RunBrainButton from "@/app/components/RunBrainButton";
 
 function dotClassForSeverity(sev: LensSeverity | undefined): string {
   if (sev === "red") return "dca-lens-dot--red";
@@ -122,6 +123,7 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
 
       {/* Footer */}
       <div className="dca-card-foot">
+        {!tooNew && <RunBrainButton eventId={ids[0]} />}
         <Link
           className="pl-btn pl-btn-outline pl-btn-s"
           href={`/dashboard/${encodeURIComponent(ids[0])}`}

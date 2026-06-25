@@ -79,7 +79,8 @@
 .dca-loading { padding: var(--spacing-40) var(--spacing-24); text-align: center; color: var(--content-secondary); }
 
 /* Card footer */
-.dca-card-foot { display: flex; justify-content: flex-end; margin-top: var(--spacing-16); }
+.dca-card-foot { display: flex; justify-content: flex-end; gap: var(--spacing-8); margin-top: var(--spacing-16); }
+.dca-runbrain { color: var(--poodle-40); }
 
 /* Empty state */
 .dca-empty { padding: var(--spacing-40) var(--spacing-24); text-align: center; color: var(--content-secondary); }
