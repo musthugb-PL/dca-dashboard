@@ -282,47 +282,145 @@ function whenSortKey(when: string | null): number {
   return 0;
 }
 
-/** Fix 6: collapsible "Past decisions on this event" — 4 sources, fuzzy-matched. */
+type Outcome = "positive" | "partial" | "negative";
+const OUTCOME_META: Record<Outcome, { icon: string; cls: string; label: string; counter: string }> = {
+  positive: { icon: "✓", cls: "pos", label: "Improved", counter: "Successful" },
+  partial: { icon: "📈", cls: "mid", label: "Mixed", counter: "Optimizing" },
+  negative: { icon: "⚠", cls: "neg", label: "Declined", counter: "Underperforming" },
+};
+
+/** Infer an outcome class from note language (no numeric ROI in the source —
+ *  we classify direction, we do NOT fabricate ROI percentages). */
+function inferOutcome(text: string, action: string | null): Outcome {
+  const t = (text + " " + (action ?? "")).toLowerCase();
+  const pos = /(scale|increase|increas|grew|\bgrow|improv|recover|working|sold ?out|strong|boost|accelerat|\bup\b)/.test(t);
+  const neg = /(\bstop|reduce|\bcut\b|\bpause|\bkill|declin|\bdrop|\bfell|underperform|wasted|weak|\bdown\b|lower|poor)/.test(t);
+  if (pos && !neg) return "positive";
+  if (neg && !pos) return "negative";
+  return "partial";
+}
+
+function fmtWhen(when: string | null): string {
+  if (!when) return "Undated";
+  if (/^\d{4}-\d{2}-\d{2}/.test(when)) {
+    const d = new Date(when + "T00:00:00Z");
+    if (!isNaN(d.getTime()))
+      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  }
+  return when; // e.g. "Week 19" (weekly notes carry no date)
+}
+
+/** B3: Past Decisions Timeline — counters, outcome-classified cards, summary, legend. */
 function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
   if (pd.count === 0) {
     return (
       <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
-        <h2 className="t-title-sm">Past decisions</h2>
+        <h2 className="t-title-sm">⏱ Past Decisions Timeline</h2>
         <p className="t-body-sm-short" style={{ color: "var(--content-secondary)", margin: "var(--spacing-8) 0 0" }}>
           No past decisions logged for this event yet — start by approving today’s verdict to build the loop.
         </p>
       </section>
     );
   }
-  const items = [...pd.items].sort((a, b) => whenSortKey(b.when) - whenSortKey(a.when));
+
+  const items = [...pd.items]
+    .sort((a, b) => whenSortKey(b.when) - whenSortKey(a.when))
+    .map((it) => ({ ...it, outcome: inferOutcome(it.text, it.action) }));
+
+  const n = items.length;
+  const cnt = { positive: 0, partial: 0, negative: 0 };
+  for (const it of items) cnt[it.outcome]++;
+  const weeks = new Set(items.map((i) => i.when).filter(Boolean)).size;
+  const pctOf = (x: number) => (n ? Math.round((x / n) * 100) : 0);
+
+  const netTrend = cnt.positive > cnt.negative ? "improving" : cnt.negative > cnt.positive ? "declining" : "mixed";
+  const worked = items.filter((i) => i.outcome === "positive").slice(0, 3);
+  const mostImpactful = worked[0] ?? null;
+  const takeaway =
+    netTrend === "improving"
+      ? "Most logged interventions moved performance up — the optimisation loop is working."
+      : netTrend === "declining"
+        ? "More interventions underperformed than helped — revisit the playbook for this event."
+        : "Mixed results — several interventions didn't clearly move the needle.";
+
+  const shown = items.slice(0, 12);
+  const rest = items.slice(12);
+
+  const Card = (it: (typeof items)[number], i: number) => {
+    const m = OUTCOME_META[it.outcome];
+    return (
+      <div key={i} className="dca-tl-node">
+        <span className={`dca-tl-icon dca-tl-icon--${m.cls}`} aria-hidden>{it.outcome === "positive" ? "✓" : it.outcome === "negative" ? "⚠" : "↗"}</span>
+        <div className="dca-tl-card">
+          <span className="dca-tl-date t-caption">{fmtWhen(it.when)}</span>
+          <span className="dca-tl-title t-body-sm-strong">{it.action ?? SOURCE_LABEL[it.source] ?? "Note"}</span>
+          <span className="dca-tl-sub t-caption">{it.text.length > 80 ? it.text.slice(0, 80) + "…" : it.text}</span>
+          <span className={`dca-tl-pill dca-tl-pill--${m.cls}`}>{m.label} · inferred</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <details className="pl-card pl-card-elevated pl-card-padded dca-history" style={{ marginTop: "var(--spacing-16)" }}>
-      <summary className="dca-history-summary t-body-sm-strong">
-        Past decisions: {pd.count} logged · click to expand
-      </summary>
-      <ul className="dca-timeline">
-        {items.map((it, i) => (
-          <li key={i} className="dca-timeline-item">
-            <div className="dca-timeline-head">
-              <span className="t-body-sm-strong">{it.when ? `Week of ${it.when}` : "Undated"}</span>
-              {it.action && <span className="dca-chip">{it.action}</span>}
-              <span className="dca-chip">
-                {SOURCE_LABEL[it.source] ?? it.source}
-                {it.matched_by === "name" ? " · name-matched" : ""}
-              </span>
-            </div>
-            <p className="dca-timeline-text t-caption">
-              {it.text.length > 200 ? it.text.slice(0, 200) + "…" : it.text}
-            </p>
-            {it.matched_by === "name" && it.event_name && (
-              <p className="t-caption" style={{ color: "var(--content-tertiary)", margin: 0 }}>
-                matched note: “{it.event_name}”
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <section className="pl-card pl-card-elevated pl-card-padded dca-tl" style={{ marginTop: "var(--spacing-16)" }}>
+      {/* A — header + counters + legend */}
+      <div className="dca-tl-head">
+        <div>
+          <h2 className="t-title-sm">⏱ Past Decisions Timeline</h2>
+          <p className="t-caption" style={{ margin: "var(--spacing-2) 0 0", color: "var(--content-secondary)" }}>{n} decisions logged</p>
+        </div>
+        <div className="dca-tl-legend t-caption">
+          <span><span className="dca-tl-dot dca-tl-dot--pos" /> Improved</span>
+          <span><span className="dca-tl-dot dca-tl-dot--mid" /> Mixed</span>
+          <span><span className="dca-tl-dot dca-tl-dot--neg" /> Declined</span>
+        </div>
+      </div>
+      <div className="dca-tl-counters">
+        <div className="dca-tl-counter dca-tl-counter--pos"><span className="dca-tl-counter-n">{cnt.positive}</span><span className="t-caption">✓ Successful ({pctOf(cnt.positive)}%)</span></div>
+        <div className="dca-tl-counter dca-tl-counter--mid"><span className="dca-tl-counter-n">{cnt.partial}</span><span className="t-caption">📈 Optimizing ({pctOf(cnt.partial)}%)</span></div>
+        <div className="dca-tl-counter dca-tl-counter--neg"><span className="dca-tl-counter-n">{cnt.negative}</span><span className="t-caption">⚠ Underperforming ({pctOf(cnt.negative)}%)</span></div>
+        <div className="dca-tl-counter"><span className="dca-tl-counter-n">{weeks}</span><span className="t-caption">📅 Distinct weeks</span></div>
+      </div>
+
+      {/* B — horizontal timeline */}
+      <div className="dca-tl-track">{shown.map((it, i) => Card(it, i))}</div>
+      {rest.length > 0 && (
+        <details className="dca-why" style={{ marginTop: "var(--spacing-8)" }}>
+          <summary className="dca-why-summary t-caption">See full history ({rest.length} more)</summary>
+          <div className="dca-tl-track" style={{ marginTop: "var(--spacing-12)" }}>{rest.map((it, i) => Card(it, i + 100))}</div>
+        </details>
+      )}
+
+      {/* C — summary panel */}
+      <div className="dca-tl-summary">
+        <div className="dca-tl-summary-col">
+          <span className="t-label-sm">Overall outcome</span>
+          <span className={`dca-tl-trend dca-tl-trend--${netTrend === "improving" ? "pos" : netTrend === "declining" ? "neg" : "mid"}`}>
+            {netTrend === "improving" ? "▲ Improving" : netTrend === "declining" ? "▼ Declining" : "→ Mixed"} ({cnt.positive}↑ / {cnt.negative}↓ / {cnt.partial}~)
+          </span>
+        </div>
+        <div className="dca-tl-summary-col">
+          <span className="t-label-sm">What worked best</span>
+          {worked.length ? (
+            <ul className="dca-tl-worked t-caption">{worked.map((w, i) => <li key={i}>{w.action ?? (w.text.length > 50 ? w.text.slice(0, 50) + "…" : w.text)}</li>)}</ul>
+          ) : <span className="t-caption" style={{ color: "var(--content-secondary)" }}>No clearly positive moves logged.</span>}
+        </div>
+        <div className="dca-tl-summary-col">
+          <span className="t-label-sm">Key takeaway</span>
+          <span className="t-caption" style={{ color: "var(--content-secondary)" }}>{takeaway}</span>
+        </div>
+      </div>
+      {mostImpactful && (
+        <div className="dca-tl-impact t-caption">
+          <span className="t-label-sm">Most impactful move</span>{" "}
+          {mostImpactful.action ?? "—"} <span className="dca-tl-pill dca-tl-pill--pos">Improved · inferred</span>{" "}
+          <span style={{ color: "var(--content-secondary)" }}>({fmtWhen(mostImpactful.when)})</span>
+        </div>
+      )}
+      <p className="t-caption" style={{ color: "var(--content-tertiary)", margin: "var(--spacing-8) 0 0" }}>
+        Outcomes inferred from note language — no numeric ROI in the source data.
+      </p>
+    </section>
   );
 }
 

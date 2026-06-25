@@ -281,6 +281,48 @@
 }
 .dca-select:disabled, .dca-input:disabled { background: var(--interaction-disable-bg); color: var(--interaction-disable-content); cursor: not-allowed; }
 
+/* B3 — Past Decisions Timeline */
+.dca-tl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-16); flex-wrap: wrap; }
+.dca-tl-legend { display: flex; gap: var(--spacing-12); color: var(--content-secondary); }
+.dca-tl-legend span { display: inline-flex; align-items: center; gap: var(--spacing-4); }
+.dca-tl-dot { width: var(--spacing-8); height: var(--spacing-8); border-radius: var(--radius-pill); display: inline-block; }
+.dca-tl-dot--pos { background: var(--accent-success); }
+.dca-tl-dot--mid { background: var(--accent-caution); }
+.dca-tl-dot--neg { background: var(--accent-alert); }
+
+.dca-tl-counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--spacing-12); margin: var(--spacing-16) 0; }
+.dca-tl-counter { display: flex; flex-direction: column; gap: var(--spacing-2); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); border-left: 3px solid var(--content-highlight); }
+.dca-tl-counter--pos { border-left-color: var(--accent-success); }
+.dca-tl-counter--mid { border-left-color: var(--accent-caution); }
+.dca-tl-counter--neg { border-left-color: var(--accent-alert); }
+.dca-tl-counter-n { font-size: var(--font-size-2xl); font-weight: var(--font-weight-bold); color: var(--content-primary); }
+.dca-tl-counter .t-caption { color: var(--content-secondary); }
+
+.dca-tl-track { display: flex; gap: var(--spacing-12); overflow-x: auto; padding-bottom: var(--spacing-8); }
+.dca-tl-node { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-6); flex: none; width: 180px; position: relative; }
+.dca-tl-node:not(:last-child)::after { content: ""; position: absolute; top: var(--spacing-12); left: 50%; width: calc(100% + var(--spacing-12)); height: 2px; background: var(--aussie-90); z-index: 0; }
+.dca-tl-icon { width: var(--spacing-24); height: var(--spacing-24); border-radius: var(--radius-pill); display: inline-flex; align-items: center; justify-content: center; font-size: var(--font-size-xs); font-weight: var(--font-weight-bold); z-index: 1; color: var(--aussie-white); }
+.dca-tl-icon--pos { background: var(--accent-success); }
+.dca-tl-icon--mid { background: var(--accent-caution); }
+.dca-tl-icon--neg { background: var(--accent-alert); }
+.dca-tl-card { display: flex; flex-direction: column; gap: var(--spacing-4); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); width: 100%; }
+.dca-tl-date { color: var(--content-secondary); }
+.dca-tl-title { color: var(--content-primary); }
+.dca-tl-sub { color: var(--content-secondary); }
+.dca-tl-pill { align-self: flex-start; padding: var(--spacing-2) var(--spacing-8); border-radius: var(--radius-pill); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
+.dca-tl-pill--pos { background: var(--accent-success-light); color: var(--accent-success); }
+.dca-tl-pill--mid { background: var(--accent-caution-light); color: var(--accent-caution); }
+.dca-tl-pill--neg { background: var(--accent-alert-light); color: var(--accent-alert); }
+
+.dca-tl-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-16); margin-top: var(--spacing-16); padding-top: var(--spacing-16); border-top: 1px solid var(--aussie-90); }
+.dca-tl-summary-col { display: flex; flex-direction: column; gap: var(--spacing-6); }
+.dca-tl-trend { font-weight: var(--font-weight-bold); }
+.dca-tl-trend--pos { color: var(--accent-success); }
+.dca-tl-trend--mid { color: var(--accent-caution); }
+.dca-tl-trend--neg { color: var(--accent-alert); }
+.dca-tl-worked { margin: 0; padding-left: var(--spacing-16); color: var(--content-secondary); display: flex; flex-direction: column; gap: var(--spacing-2); }
+.dca-tl-impact { margin-top: var(--spacing-16); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); color: var(--content-primary); }
+
 /* 7. Off-day banner — amber note styling (like the GA4 data note) */
 .dca-banner {
   background: var(--accent-caution-light);
