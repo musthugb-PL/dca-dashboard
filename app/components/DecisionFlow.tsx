@@ -32,6 +32,17 @@ const OVERRIDE_REASONS = [
 
 const ACTIONS = ["HOLD", "OPTIMIZE", "SCALE", "PAUSE", "KILL", "REMARKET"] as const;
 
+/** Per-verb personality: glyph + tone line + colour class (readable across a room). */
+const VERB_META: Record<string, { glyph: string; tone: string; cls: string }> = {
+  HOLD: { glyph: "✓", tone: "Healthy — keep going", cls: "good" },
+  SCALE: { glyph: "↗", tone: "Winning — push more", cls: "good" },
+  OPTIMIZE: { glyph: "⚙", tone: "Needs tuning", cls: "warn" },
+  PAUSE: { glyph: "⏸", tone: "Stop spending", cls: "orange" },
+  KILL: { glyph: "✕", tone: "End it", cls: "bad" },
+  REMARKET: { glyph: "⟳", tone: "Re-engage", cls: "pro" },
+};
+const isContinueStep = (text: string) => /no (within-event )?(optimization|action|changes?) (needed|required)|continue current allocation/i.test(text);
+
 const DEFAULT_OUTCOMES = [
   "Meta CPA drops below AED 50 within 5 days",
   "Google conversions increase 30%+ within 7 days",
@@ -119,6 +130,8 @@ export default function DecisionFlow({
   }
 
   const verb = verdict?.recommended_action ?? "—";
+  const vm = VERB_META[verb] ?? { glyph: "○", tone: "Not analysed", cls: "neutral" };
+  const celebratory = verb === "HOLD" || verb === "SCALE";
   const lensLine = verdict
     ? `${verdict.primary_lens ? `Primary: ${LENS_LABEL[verdict.primary_lens]}` : "No single primary lens"}` +
       (verdict.contributing_lenses.length ? ` · Contributing: ${verdict.contributing_lenses.map((k) => LENS_LABEL[k]).join(", ")}` : "")
@@ -126,12 +139,13 @@ export default function DecisionFlow({
 
   return (
     <>
-      {/* B2 — sticky decision header */}
-      <div className="dca-sticky">
+      {/* B2 + Fix 16 — sticky decision header, coloured by verb */}
+      <div className={`dca-sticky dca-sticky--${vm.cls}`}>
         <div className="dca-sticky-main">
-          <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()} dca-sticky-verb`}>{verb}</span>
+          <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()} dca-sticky-verb`} aria-hidden>{vm.glyph}</span>
           <div className="dca-sticky-meta">
-            <span className="t-body-sm-strong">{lensLine}</span>
+            <span className="dca-sticky-tone t-title-sm">{verb !== "—" ? `${verb} · ${vm.tone}` : "Not analysed yet"}</span>
+            <span className="t-body-sm-short">{lensLine}</span>
             <span className="t-caption">
               Confidence: {(verdict?.confidence ?? "—").toUpperCase()} · Risk: {manualReviewSteps.length} manual review{manualReviewSteps.length === 1 ? "" : "s"}
               {" · "}{counts.total} step{counts.total === 1 ? "" : "s"} · {counts.approved} approved · {counts.pending} pending
@@ -160,9 +174,12 @@ export default function DecisionFlow({
           <p className="dca-strategic t-body-sm-short">No persisted analysis for this event yet — run the AI brain.</p>
         ) : (
           <>
-            <div className="dca-verdict-action">
-              <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()}`}>{verb}</span>
-              <span className="dca-lens-window t-caption">{lensLine} · AI confidence {verdict.confidence}</span>
+            <div className={`dca-verdict-banner dca-verdict-banner--${vm.cls}`}>
+              <span className="dca-verdict-glyph" aria-hidden>{vm.glyph}</span>
+              <div>
+                <div className="t-title-base">{verb} — {vm.tone}</div>
+                <div className="dca-lens-window t-caption">{lensLine} · AI confidence {verdict.confidence}</div>
+              </div>
             </div>
 
             {manualReviewSteps.length > 0 && (
@@ -179,10 +196,21 @@ export default function DecisionFlow({
             {/* per-step approve / override */}
             <div className="dca-steps">
               {steps.length === 0 ? (
-                <p className="t-caption">No tactical steps — current allocation is performing.</p>
+                celebratory ? (
+                  <div className="dca-step-continue"><span className="dca-step-continue-tick" aria-hidden>✓</span> Continue current allocation — no changes needed.</div>
+                ) : (
+                  <p className="t-caption">No tactical steps — current allocation is performing.</p>
+                )
               ) : (
                 steps.map((s) => {
                   const st = status[s.id] ?? "pending";
+                  if (isContinueStep(s.text)) {
+                    return (
+                      <div key={s.id} className="dca-step-continue">
+                        <span className="dca-step-continue-tick" aria-hidden>✓</span> {s.text}
+                      </div>
+                    );
+                  }
                   return (
                     <div key={s.id} className={`dca-step dca-step--${st}`}>
                       <div className="dca-step-body t-body-sm-short">

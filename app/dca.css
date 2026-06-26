@@ -252,6 +252,33 @@
 .dca-sticky-meta .t-body-sm-strong { color: var(--content-primary); }
 .dca-sticky-meta .t-caption { color: var(--content-secondary); }
 .dca-sticky-actions { display: flex; gap: var(--spacing-8); flex: none; }
+.dca-sticky-tone { color: var(--content-primary); }
+.dca-sticky-verb { font-size: var(--font-size-base); padding: var(--spacing-4) var(--spacing-10); }
+
+/* Fix 16 — verb-tinted sticky banner */
+.dca-sticky--good   { background: var(--accent-success-light); border-color: var(--accent-success); }
+.dca-sticky--warn   { background: var(--accent-caution-light); border-color: var(--accent-caution); }
+.dca-sticky--orange { background: var(--accent-caution-light); border-color: var(--accent-caution); }
+.dca-sticky--bad    { background: var(--accent-alert-light);   border-color: var(--accent-alert); }
+.dca-sticky--pro    { background: var(--poodle-90, var(--bg-floating)); border-color: var(--poodle-40); }
+.dca-sticky--neutral { background: var(--bg-floating); }
+
+/* Fix 16 — verdict banner (celebratory for HOLD/SCALE) */
+.dca-verdict-banner { display: flex; align-items: center; gap: var(--spacing-12); padding: var(--spacing-12) var(--spacing-16); border-radius: var(--radius-md); margin: var(--spacing-12) 0; border-left: 4px solid var(--content-highlight); }
+.dca-verdict-glyph { font-size: var(--font-size-2xl); font-weight: var(--font-weight-bold); line-height: 1; }
+.dca-verdict-banner--good   { background: var(--accent-success-light); border-left-color: var(--accent-success); }
+.dca-verdict-banner--good .t-title-base, .dca-verdict-banner--good .dca-verdict-glyph { color: var(--accent-success); }
+.dca-verdict-banner--warn, .dca-verdict-banner--orange { background: var(--accent-caution-light); border-left-color: var(--accent-caution); }
+.dca-verdict-banner--warn .t-title-base, .dca-verdict-banner--orange .t-title-base,
+.dca-verdict-banner--warn .dca-verdict-glyph, .dca-verdict-banner--orange .dca-verdict-glyph { color: var(--accent-caution); }
+.dca-verdict-banner--bad    { background: var(--accent-alert-light); border-left-color: var(--accent-alert); }
+.dca-verdict-banner--bad .t-title-base, .dca-verdict-banner--bad .dca-verdict-glyph { color: var(--accent-alert); }
+.dca-verdict-banner--pro    { background: var(--poodle-90, var(--bg-floating)); border-left-color: var(--poodle-40); }
+.dca-verdict-banner--pro .t-title-base, .dca-verdict-banner--pro .dca-verdict-glyph { color: var(--poodle-40); }
+
+/* Fix 14/16 — "continue, no changes" step rendered as a green win, not a checkbox */
+.dca-step-continue { display: flex; align-items: center; gap: var(--spacing-8); padding: var(--spacing-12); background: var(--accent-success-light); border-radius: var(--radius-sm); color: var(--content-primary); }
+.dca-step-continue-tick { color: var(--accent-success); font-weight: var(--font-weight-bold); font-size: var(--font-size-lg); }
 
 /* REMARKET → purple/blue intent (distinct from optimize); PAUSE stays amber/orange */
 .dca-ai-verb.dca-ai-verb--remarket { background: var(--poodle-90, var(--bg-secondary)); color: var(--poodle-40); }
