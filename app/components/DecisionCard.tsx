@@ -11,6 +11,33 @@ function dotClassForSeverity(sev: LensSeverity | undefined): string {
   return "dca-lens-dot--grey";
 }
 
+/** Verb → stripe colour class + status glyph (Fix 18). */
+const VERB_UI: Record<string, { cls: string; glyph: string }> = {
+  HOLD: { cls: "good", glyph: "✓" },
+  SCALE: { cls: "good", glyph: "↗" },
+  OPTIMIZE: { cls: "warn", glyph: "⚙" },
+  PAUSE: { cls: "orange", glyph: "⏸" },
+  KILL: { cls: "bad", glyph: "✕" },
+  REMARKET: { cls: "pro", glyph: "⟳" },
+};
+
+/** Tiny 60×24 SVG sparkline for the card header (pure SVG, no deps). */
+function MiniSpark({ data }: { data: number[] }) {
+  const pts = (data ?? []).filter((n) => Number.isFinite(n));
+  if (pts.length < 2) return null;
+  const w = 60, h = 24, pad = 2;
+  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
+  const step = (w - pad * 2) / (pts.length - 1);
+  const path = pts
+    .map((v, i) => `${i ? "L" : "M"}${(pad + i * step).toFixed(1)} ${(h - pad - ((v - min) / range) * (h - pad * 2)).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="dca-minispark" aria-hidden>
+      <path d={path} fill="none" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 function FlagPill({ flags }: { flags: ReviewCard["flags"] }) {
   if (flags.total === 0) return <span className="dca-chip">0 flags</span>;
   const label = `${flags.total} flag${flags.total === 1 ? "" : "s"}`;
@@ -36,13 +63,17 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
 
   const verb = analysis?.verdict.recommended_action ?? null;
   const reason = analysis ? cardReason(analysis) : null;
+  const verbUi = verb ? VERB_UI[verb] : null;
+  const stripeCls = tooNew ? "neutral" : verbUi?.cls ?? "neutral";
+  const salesSeries = report ? [...report.sales.daily].sort((a, b) => (a.date < b.date ? -1 : 1)).map((x) => x.rev) : [];
 
   const eventRef = isFestival
     ? `Landing page ${ids[0]} + ${ids.length - 1} more`
     : `Event ${primaryEventId}`;
 
   return (
-    <article className="pl-card pl-card-elevated pl-card-padded">
+    <article className="pl-card pl-card-elevated pl-card-padded dca-listcard">
+      <span className={`dca-cardstripe dca-cardstripe--${stripeCls}`} aria-hidden />
       {/* Header row */}
       <div className="dca-card-head">
         <h3 className="dca-card-title t-title-base">{row.event_name || "Untitled event"}</h3>
@@ -51,6 +82,7 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
         {/* Review status — Pending until the approve/override flow ships (P2.2) */}
         <span className="dca-chip">Pending</span>
         <span className="dca-spacer" />
+        {salesSeries.length > 1 && <MiniSpark data={salesSeries} />}
         {/* Red Flag pill — live count from dca_red_flag_events (today's slot) */}
         <FlagPill flags={card.flags} />
       </div>
@@ -83,7 +115,9 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
           </>
         ) : verb ? (
           <>
-            <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()}`}>{verb}</span>
+            <span className={`dca-ai-verb dca-ai-verb--${verb.toLowerCase()}`}>
+              {verbUi ? <span aria-hidden>{verbUi.glyph} </span> : null}{verb}
+            </span>
             <span className="dca-ai-reason t-caption">
               {reason ?? "No diagnosis bullet returned"}
             </span>

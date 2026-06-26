@@ -307,6 +307,20 @@
 .dca-step-continue { display: flex; align-items: center; gap: var(--spacing-8); padding: var(--spacing-12); background: var(--accent-success-light); border-radius: var(--radius-sm); color: var(--content-primary); }
 .dca-step-continue-tick { color: var(--accent-success); font-weight: var(--font-weight-bold); font-size: var(--font-size-lg); }
 
+/* Fix 18 — dashboard list card polish */
+.dca-listcard { position: relative; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.dca-listcard:hover { transform: translateY(-2px); }
+.dca-cardstripe { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--content-highlight); }
+.dca-cardstripe--good   { background: var(--accent-success); }
+.dca-cardstripe--warn   { background: var(--accent-caution); }
+.dca-cardstripe--orange { background: var(--accent-caution); }
+.dca-cardstripe--bad    { background: var(--accent-alert); }
+.dca-cardstripe--pro    { background: var(--poodle-40); }
+.dca-cardstripe--neutral { background: var(--aussie-90); }
+.dca-minispark { flex: none; }
+.dca-minispark path { stroke: var(--poodle-40); fill: none; }
+.dca-listcard .dca-stat-value { font-size: var(--font-size-xl); }
+
 /* Fix 13 — Copy to Slack button + toast */
 .dca-slackbtn { color: var(--poodle-40); border-color: var(--poodle-40); }
 .dca-toast {
