@@ -14,7 +14,37 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import type { Verdict, LensName } from "@/src/lib/ai-brain/types";
+import type { Verdict, LensName, TacticalStep } from "@/src/lib/ai-brain/types";
+
+type HeaderMeta = { eventName: string; country: string | null; manager: string | null; window: string };
+
+/** Fix 13: build a Slack-paste-ready summary block from the decision. */
+function buildSlackSummary(args: {
+  meta: HeaderMeta; slot: number | null; verdict: Verdict; finalAction: string;
+  approved: TacticalStep[]; dismissed: { step: TacticalStep; reason: string }[]; expectedOutcome: string;
+}): string {
+  const { meta, slot, verdict, finalAction, approved, dismissed, expectedOutcome } = args;
+  const first = (verdict.strategic_context || "").split(/(?<=[.!?])\s/)[0] || verdict.strategic_context || "";
+  const date = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  const tail = `— Optimization PLUS · ${date}`;
+
+  if (finalAction === "HOLD") {
+    return [
+      `📊 Optimization PLUS — ${meta.eventName}`,
+      `Window: ${meta.window}`,
+      `✅ Verdict: HOLD — campaign healthy. ${first}`,
+      tail,
+    ].join("\n");
+  }
+
+  const hdr = `📊 Optimization PLUS — ${meta.eventName}${meta.country ? ` ${meta.country}` : ""}${slot ? ` · Slot ${slot}` : ""}${meta.manager ? ` · ${meta.manager}` : ""}`;
+  const lines = [hdr, `Window: ${meta.window}`, `🎯 Verdict: ${finalAction} — ${first}`];
+  if (approved.length) { lines.push(`✅ Approved actions:`); approved.forEach((s) => lines.push(`  • ${s.text}`)); }
+  if (dismissed.length) { lines.push(`❌ Dismissed:`); dismissed.forEach((d) => lines.push(`  • ${d.step.text} — Reason: ${d.reason}`)); }
+  if (expectedOutcome) lines.push(`📌 Expected outcome: ${expectedOutcome}`);
+  lines.push(tail);
+  return lines.join("\n");
+}
 
 const LENS_LABEL: Record<LensName, string> = {
   internal: "Internal", meta: "Meta", google: "Google", ga4: "GA4", last_week: "Last week", market: "Market",
@@ -59,15 +89,18 @@ export default function DecisionFlow({
   verdict,
   eventId,
   slot,
+  headerMeta,
   children,
 }: {
   verdict: Verdict | null;
   eventId: string;
   slot: number | null;
+  headerMeta: HeaderMeta;
   children: React.ReactNode;
 }) {
   const steps = verdict?.tactical_steps ?? [];
   const verdictRef = useRef<HTMLDivElement>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const [status, setStatus] = useState<Record<number, StepStatus>>({});
   const [overrides, setOverrides] = useState<Record<number, { reason: string; notes: string }>>({});
@@ -129,6 +162,19 @@ export default function DecisionFlow({
     }
   }
 
+  function copyToSlack() {
+    if (!verdict) return;
+    const approved = steps.filter((s) => (status[s.id] ?? "pending") === "approved");
+    const dismissed = steps
+      .filter((s) => (status[s.id] ?? "pending") === "dismissed")
+      .map((s) => ({ step: s, reason: overrides[s.id]?.reason ?? "Other" }));
+    const text = buildSlackSummary({ meta: headerMeta, slot, verdict, finalAction, approved, dismissed, expectedOutcome });
+    navigator.clipboard.writeText(text).then(
+      () => { setToast("Copied — paste in your Slack channel"); setTimeout(() => setToast(null), 3000); },
+      () => { setToast("Copy failed — select the text manually"); setTimeout(() => setToast(null), 3000); },
+    );
+  }
+
   const verb = verdict?.recommended_action ?? "—";
   const vm = VERB_META[verb] ?? { glyph: "○", tone: "Not analysed", cls: "neutral" };
   const celebratory = verb === "HOLD" || verb === "SCALE";
@@ -159,6 +205,9 @@ export default function DecisionFlow({
             </button>
             <button type="button" className="pl-btn pl-btn-outline pl-btn-s" onClick={scrollToVerdict}>
               Review Step by Step ↓
+            </button>
+            <button type="button" className="pl-btn pl-btn-ghost pl-btn-s dca-slackbtn" onClick={copyToSlack}>
+              Copy to Slack ↗
             </button>
           </div>
         )}
@@ -298,10 +347,15 @@ export default function DecisionFlow({
                   {submitting ? "Submitting…" : "Submit Decision"}
                 </button>
               )}
+              <button type="button" className="pl-btn pl-btn-outline pl-btn-m dca-slackbtn" onClick={copyToSlack}>
+                Copy to Slack ↗
+              </button>
             </div>
           </>
         )}
       </section>
+
+      {toast && <div className="dca-toast" role="status">{toast}</div>}
     </>
   );
 }

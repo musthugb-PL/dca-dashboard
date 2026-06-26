@@ -307,6 +307,16 @@
 .dca-step-continue { display: flex; align-items: center; gap: var(--spacing-8); padding: var(--spacing-12); background: var(--accent-success-light); border-radius: var(--radius-sm); color: var(--content-primary); }
 .dca-step-continue-tick { color: var(--accent-success); font-weight: var(--font-weight-bold); font-size: var(--font-size-lg); }
 
+/* Fix 13 — Copy to Slack button + toast */
+.dca-slackbtn { color: var(--poodle-40); border-color: var(--poodle-40); }
+.dca-toast {
+  position: fixed; top: var(--spacing-16); right: var(--spacing-16); z-index: 50;
+  padding: var(--spacing-12) var(--spacing-16); border-radius: var(--radius-sm);
+  background: var(--accent-success); color: var(--aussie-white);
+  font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
 /* REMARKET → purple/blue intent (distinct from optimize); PAUSE stays amber/orange */
 .dca-ai-verb.dca-ai-verb--remarket { background: var(--poodle-90, var(--bg-secondary)); color: var(--poodle-40); }
 

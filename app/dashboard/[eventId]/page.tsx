@@ -216,7 +216,17 @@ export default async function EventReportPage({ params }: { params: { eventId: s
         </div>
 
         {/* B2 sticky header + B4 verdict wrap the KPI strip, timeline, and lenses */}
-        <DecisionFlow verdict={analysis?.verdict ?? null} eventId={params.eventId} slot={slot}>
+        <DecisionFlow
+          verdict={analysis?.verdict ?? null}
+          eventId={params.eventId}
+          slot={slot}
+          headerMeta={{
+            eventName: report.event.name || `Event ${params.eventId}`,
+            country: report.event.country || null,
+            manager,
+            window: `${dateFrom} → ${dateTo}`,
+          }}
+        >
           {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
           <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
             <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
