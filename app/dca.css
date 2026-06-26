@@ -210,8 +210,35 @@
    PHASE B — UX rebuild
    ========================================================================== */
 
-/* B1 — lens card */
-.dca-lenscard { display: flex; flex-direction: column; }
+/* Fix 11 — Option A lens card: status banner + hero + sparkline */
+.dca-lenscard { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.dca-lensbar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-12); padding: var(--spacing-10) var(--spacing-16); }
+.dca-lensbar--good   { background: var(--accent-success-light); }
+.dca-lensbar--warn   { background: var(--accent-caution-light); }
+.dca-lensbar--bad    { background: var(--accent-alert-light); }
+.dca-lensbar--nodata { background: var(--bg-secondary); }
+.dca-lensbar-left { display: flex; align-items: center; gap: var(--spacing-8); flex-wrap: wrap; }
+.dca-lensbar-glyph { font-weight: var(--font-weight-bold); }
+.dca-lensbar--good .dca-lensbar-glyph, .dca-lensbar--good .dca-lensbar-word { color: var(--accent-success); }
+.dca-lensbar--warn .dca-lensbar-glyph, .dca-lensbar--warn .dca-lensbar-word { color: var(--accent-caution); }
+.dca-lensbar--bad  .dca-lensbar-glyph, .dca-lensbar--bad  .dca-lensbar-word { color: var(--accent-alert); }
+.dca-lensbar--nodata .dca-lensbar-word { color: var(--content-secondary); }
+.dca-lensbar-name { color: var(--content-secondary); }
+.dca-lensbar-right { color: var(--content-secondary); white-space: nowrap; }
+.dca-lensbody { padding: var(--spacing-16); }
+.dca-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-16); }
+.dca-hero-main { display: flex; flex-direction: column; gap: var(--spacing-4); align-items: flex-start; min-width: 0; }
+.dca-hero-label { color: var(--content-secondary); }
+.dca-hero-value { font-size: var(--font-size-2xl); line-height: var(--font-line-height-2xl); font-weight: var(--font-weight-bold); color: var(--content-primary); }
+.dca-hero-spark { flex: none; }
+.dca-spark path { stroke: var(--content-highlight); fill: none; }
+.dca-spark circle { fill: var(--content-highlight); }
+.dca-spark--good path { stroke: var(--accent-success); } .dca-spark--good circle { fill: var(--accent-success); }
+.dca-spark--warn path { stroke: var(--accent-caution); } .dca-spark--warn circle { fill: var(--accent-caution); }
+.dca-spark--bad  path { stroke: var(--accent-alert);   } .dca-spark--bad  circle { fill: var(--accent-alert); }
+.dca-lensbody .dca-tiles { margin-top: var(--spacing-12); }
+
+/* B1 (legacy) — status pill + proof points (kept for any fallback use) */
 .dca-lens-status {
   display: inline-flex; align-self: flex-start; align-items: center;
   margin-top: var(--spacing-8); padding: var(--spacing-2) var(--spacing-10);

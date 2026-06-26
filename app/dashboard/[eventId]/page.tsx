@@ -156,11 +156,28 @@ export default async function EventReportPage({ params }: { params: { eventId: s
     (analysis?.lenses ?? []).map((l) => [l.lens, l]),
   );
 
-  const LENSES: { name: string; key: LensName; window: string; tiles: Tile[] }[] = [
-    { name: "Internal", key: "internal", window: "3d vs prior 3d", tiles: internalTiles },
-    { name: "Meta", key: "meta", window: "7d vs T-7", tiles: metaTiles },
-    { name: "Google", key: "google", window: "7d vs T-7", tiles: googleTiles },
-    { name: "GA4", key: "ga4", window: "7d vs T-7", tiles: ga4Tiles },
+  // ---- Fix 11: per-lens hero metric (+ sparkline series for Internal) ----
+  const dailySorted = [...report.sales.daily].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const last3Sales = dailySorted.slice(-3).reduce((s, x) => s + (x.rev || 0), 0);
+  const internalHero: Hero = {
+    label: "Sales · last 3 days",
+    value: aed(last3Sales),
+    pill: wowCmp(d?.total_sales, true),
+    series: dailySorted.map((x) => x.rev),
+  };
+  const metaHero: Hero | undefined = meta
+    ? { label: "Meta · CPA", value: aed(meta.cpa), pill: wowCmp(d?.meta_cpa, false) }
+    : { label: "Meta", value: "no spend in window" };
+  const googleHero: Hero | undefined = google
+    ? { label: "Google · cost/conv", value: aed(google.cpa), pill: wowCmp(d?.google_cpa, false) }
+    : { label: "Google", value: "no spend in window" };
+  const ga4Hero: Hero = { label: "Funnel · purchases (7d)", value: intFmt(f.users_with_purchase) };
+
+  const LENSES: LensDef[] = [
+    { name: "Internal", key: "internal", window: "3d vs prior 3d", tiles: internalTiles, hero: internalHero },
+    { name: "Meta", key: "meta", window: "7d vs T-7", tiles: metaTiles, hero: metaHero },
+    { name: "Google", key: "google", window: "7d vs T-7", tiles: googleTiles, hero: googleHero },
+    { name: "GA4", key: "ga4", window: "7d vs T-7", tiles: ga4Tiles, hero: ga4Hero },
     { name: "Last week", key: "last_week", window: "last 4 weeks", tiles: narrativeTiles },
     { name: "Market", key: "market", window: "past 7d + next 14d", tiles: narrativeTiles },
   ];
@@ -445,27 +462,47 @@ function MetricTile({ t }: { t: Tile }) {
   );
 }
 
-type LensDef = { name: string; key: LensName; window: string; tiles: Tile[] };
+type Hero = { label: string; value: string; pill?: Wow; series?: number[] };
+type LensDef = { name: string; key: LensName; window: string; tiles: Tile[]; hero?: Hero };
 
-/** lens_score → status label + traffic-light dot class (B1). */
-function lensStatus(score: number | null): { label: string; dot: string; cls: string } {
-  if (score == null) return { label: "NO DATA", dot: "dca-lens-dot--grey", cls: "nodata" };
-  if (score < 30) return { label: "HEALTHY", dot: "dca-lens-dot--green", cls: "healthy" };
-  if (score <= 60) return { label: "SOFTENING", dot: "dca-lens-dot--yellow", cls: "softening" };
-  return { label: "COLLAPSING", dot: "dca-lens-dot--red", cls: "collapsing" };
+/** Per-lens status word triple [healthy, softening, collapsing] (Fix 11). */
+const STATUS_WORDS: Record<LensName, [string, string, string]> = {
+  internal: ["Demand healthy", "Watch closely", "Action needed"],
+  meta: ["Meta strong", "Meta drifting", "Meta burning"],
+  google: ["Google strong", "Google drifting", "Wasted spend"],
+  ga4: ["Funnel healthy", "Funnel friction", "Funnel broken"],
+  last_week: ["On track", "Loop detected", "Predicted wrong"],
+  market: ["Tailwind", "Neutral", "Headwind"],
+};
+
+/** lens_score → status band (colour cls + glyph + per-lens word). */
+function lensStatus(key: LensName, score: number | null): { word: string; cls: string; glyph: string } {
+  if (score == null) return { word: "No data yet", cls: "nodata", glyph: "○" };
+  const words = STATUS_WORDS[key];
+  if (score < 30) return { word: words[0], cls: "good", glyph: "▲" };
+  if (score <= 60) return { word: words[1], cls: "warn", glyph: "⚠" };
+  return { word: words[2], cls: "bad", glyph: "▼" };
 }
 
-/** Direction of a diagnosis bullet → arrow glyph + colour class. */
-function proofDir(text: string): { arrow: string; dir: "up" | "down" | "flat" } {
-  const t = text.toLowerCase();
-  const down = /(below|down|fell|\bfall|drop|declin|collaps|\blag|worse|weaken|lower|under(perform|-)|missed|cratered|bleed|wasted|0 (tracked )?conv)/.test(t);
-  const up = /(above|\bup\b|rose|grew|grow|improv|beat|exceed|outperform|higher|strong|recover|accelerat)/.test(t);
-  if (down && !up) return { arrow: "▼", dir: "down" };
-  if (up && !down) return { arrow: "▲", dir: "up" };
-  return { arrow: "•", dir: "flat" };
+/** Tiny inline SVG sparkline (server-rendered, no client JS). */
+function Sparkline({ data, cls }: { data: number[]; cls: string }) {
+  const pts = (data ?? []).filter((n) => Number.isFinite(n));
+  if (pts.length < 2) return null;
+  const w = 120, h = 44, pad = 4;
+  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
+  const step = (w - pad * 2) / (pts.length - 1);
+  const xy = pts.map((v, i) => [pad + i * step, h - pad - ((v - min) / range) * (h - pad * 2)] as const);
+  const path = xy.map((c, i) => `${i ? "L" : "M"}${c[0].toFixed(1)} ${c[1].toFixed(1)}`).join(" ");
+  const last = xy[xy.length - 1];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={`dca-spark dca-spark--${cls}`} aria-hidden>
+      <path d={path} fill="none" strokeWidth="2" />
+      <circle cx={last[0]} cy={last[1]} r="3.2" />
+    </svg>
+  );
 }
 
-/** B1: scannable lens card — status, metric tiles, 3 proof points, collapsible Why. */
+/** Fix 11 — Option A lens card: status banner + hero number + sparkline + mini-tiles + Why. */
 function LensCard({
   lens, lo, hasAnalysis, clusterFallback, analogFallback,
 }: {
@@ -476,55 +513,66 @@ function LensCard({
   analogFallback: string;
 }) {
   const score = lo ? lo.lens_score : null;
-  const st = lensStatus(score);
+  const st = lensStatus(lens.key, score);
   const bullets = lo?.diagnosis_bullets ?? [];
+  const hero = lens.hero;
+
   return (
-    <section className="pl-card pl-card-elevated pl-card-padded dca-lenscard">
-      <div className="dca-lens-head">
-        <span className={`dca-lens-dot ${st.dot}`} aria-hidden />
-        <h2 className="t-title-sm">{lens.name}</h2>
-        {lo && <span className="dca-chip">score {lo.lens_score} · {lo.confidence}</span>}
-        <span className="dca-spacer" />
-        <span className="dca-lens-window t-caption">{lens.window}</span>
+    <section className="pl-card pl-card-elevated dca-lenscard">
+      {/* A — colored status banner */}
+      <div className={`dca-lensbar dca-lensbar--${st.cls}`}>
+        <span className="dca-lensbar-left">
+          <span className="dca-lensbar-glyph" aria-hidden>{st.glyph}</span>
+          <span className="dca-lensbar-word t-body-sm-strong">{st.word}</span>
+          <span className="dca-lensbar-name t-caption">{lens.name}</span>
+        </span>
+        <span className="dca-lensbar-right t-caption">
+          {lo ? `score ${lo.lens_score} · ${lo.confidence}` : lens.window}
+        </span>
       </div>
 
-      <div className={`dca-lens-status dca-lens-status--${st.cls}`}>{st.label}</div>
+      <div className="dca-lensbody">
+        {/* B — hero metric + sparkline */}
+        {hero && (
+          <div className="dca-hero">
+            <div className="dca-hero-main">
+              <span className="dca-hero-label t-caption">{hero.label}</span>
+              <span className="dca-hero-value">{hero.value}</span>
+              {hero.pill && (
+                <DeltaPill value={hero.pill.pct * 100} good={hero.pill.goodUp ? hero.pill.pct >= 0 : hero.pill.pct <= 0} />
+              )}
+            </div>
+            {hero.series && (
+              <div className="dca-hero-spark"><Sparkline data={hero.series} cls={st.cls} /></div>
+            )}
+          </div>
+        )}
 
-      <div className="dca-tiles">
-        {lens.tiles.map((t, i) => <MetricTile key={i} t={t} />)}
-      </div>
+        {/* C — mini-tile grid (first 3 metrics) */}
+        <div className="dca-tiles">
+          {lens.tiles.slice(0, 3).map((t, i) => <MetricTile key={i} t={t} />)}
+        </div>
 
-      {bullets.length > 0 ? (
-        <ul className="dca-proof">
-          {bullets.slice(0, 3).map((b, i) => {
-            const p = proofDir(b);
-            return (
-              <li key={i} className="dca-proof-item">
-                <span className={`dca-proof-arrow dca-proof-arrow--${p.dir}`} aria-hidden>{p.arrow}</span>
-                <span>{b.length > 120 ? b.slice(0, 120) + "…" : b}</span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="dca-proof-empty t-caption">
-          {hasAnalysis ? "No diagnosis returned for this lens" : "Not analysed yet — run the AI brain"}
+        {/* D — collapsible Why */}
+        {bullets.length > 0 ? (
+          <details className="dca-why">
+            <summary className="dca-why-summary t-caption">Why this is {st.word.toLowerCase()}</summary>
+            <ul className="dca-why-list t-caption">
+              {bullets.map((b, i) => <li key={i}>{b}</li>)}
+            </ul>
+          </details>
+        ) : (
+          <p className="dca-proof-empty t-caption">
+            {hasAnalysis ? "No diagnosis returned for this lens" : "Not analysed yet — run the AI brain"}
+          </p>
+        )}
+
+        {/* E — plain-English cluster + analog references */}
+        <p className="dca-ref-line t-caption">Compared to {lo ? lo.cluster_benchmark_used : clusterFallback}</p>
+        <p className="dca-ref-line t-caption" title="A specific similar event used as a direct comparison">
+          {lo ? lo.analog_event_cited : analogFallback}
         </p>
-      )}
-
-      {bullets.length > 0 && (
-        <details className="dca-why">
-          <summary className="dca-why-summary t-caption">Why — full diagnosis</summary>
-          <ul className="dca-why-list t-caption">
-            {bullets.map((b, i) => <li key={i}>{b}</li>)}
-          </ul>
-        </details>
-      )}
-
-      <p className="dca-ref-line t-caption">Cluster: {lo ? lo.cluster_benchmark_used : clusterFallback}</p>
-      <p className="dca-ref-line t-caption" title="Analog = a specific similar event used as a direct comparison">
-        Analog: {lo ? lo.analog_event_cited : analogFallback}
-      </p>
+      </div>
     </section>
   );
 }
