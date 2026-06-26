@@ -176,6 +176,58 @@ Guarantees marketing-attributed tickets never exceed reality. Apply in every Len
 
 **Source B sync:** queue after current iteration. Same exact pattern as the Source A sheet sync (hourly Edge Function, public CSV export, ledger-style transform, `dca_source_b_notes` upsert). Sheet URL: `https://docs.google.com/spreadsheets/d/1iGYFYHeJ3km7HdaH4sl9eoDHehefcjvBC4ygEOHkrms/edit?gid=1271149369#gid=1271149369`.
 
+## Phase A & B implementation specifics (locked 2026-06-25)
+
+**Window helper:** `reviewWindow()` returns last 7 FULL days ending yesterday — single source of truth used by getEventReport, the dashboard data fetch, the report page, and red-flag/brain crons. Internal lens computes its own 3d-vs-3d snapshot from the daily series.
+
+**Meta ad-set data source:** real audience-typed names live in `channels_3_campaign_level_llm.ad_group` (BigQuery) for `source = 'fb & instagram'` rows. NOT in `dca_v_meta_ads` (that has ad_name = creative codes, ad-level only). `getOwnSegments()` pulls Meta from this source; Google ad groups stay on `dca_v_google_ads`.
+
+**Past decisions matching:** **exact `event_id` only**. No fuzzy/name matching. ~66% of `dca_source_b_weekly_notes` rows have NULL event_id and are silently skipped. Phase 2.5 TODO: resolve event_id at sync time to recover them.
+
+**Verdict logic (synthesis prompt rules):**
+
+| Verb | Trigger condition |
+|---|---|
+| **HOLD** | ROAS ≥ cluster baseline AND no WoW decline > 15% AND no Red Flag fires AND no within-event efficiency gap > 3× → tactical_steps empty or single "Continue current allocation" |
+| **SCALE** | ROAS ≥ 1.5× cluster baseline AND WoW trend up AND frequency under saturation (Meta < 3× arena) |
+| **OPTIMIZE** | Mixed signal — some lenses green, some yellow/red — fixable via within-event moves only. NOT a catch-all. |
+| **PAUSE** | Event has passed (deterministic guardrail — see below) OR ROAS < 50% cluster for 5+ days OR Meta CPA > 3× ticket price sustained |
+| **KILL** | Event ended (`status='ended'`) OR zero conversions on 7+ days of real spend (>1000 AED) |
+| **REMARKET** | Site traffic / CC firings / Google clicks exist BUT CC rate < 1% — browsing not buying |
+
+**Show-passed guardrail (deterministic, not AI judgment):** any verdict for an event whose show date has already passed is FORCED to PAUSE or KILL via post-synthesis code check. The AI has no clock; the prompt's `BENCHMARKS:` block injects "show date X passed N days ago on today" so the model can reason correctly, but the guardrail catches misfires regardless. Implemented in `src/lib/ai-brain/synthesize.ts`.
+
+**Tactical step format (Sacred Rule #11 enforcement):**
+Every step MUST include:
+1. Exact name from data (ad/ad-set/audience/campaign string)
+2. Specific budget in AED + duration in days
+3. Specific success metric to evaluate at end
+4. WHO executes (Khaled / auto-pause threshold / "Manual Review Required" flag)
+5. REASON beyond the metric gap — explain *why* this action, not just "underperforms"
+
+**Meta budget constraint:** Meta runs lifetime budgets at campaign level (NOT daily, NOT ad-set). Synthesis prompt recommends "lifetime budget adjustments" or "manual reallocation inside the existing campaign," never "daily budget changes." Google ad-group budgets behave normally.
+
+**Manual Review Required:** distinct card-level flag on the verdict, NOT a tactical step. Shows in the sticky decision header ("Risk: N manual reviews") and as a banner above the steps. Used when AI recommends escalation rather than a direct action.
+
+**Vercel cron schedule (AI brain auto-runs day-before-review):**
+
+| Slot | Day | Schedule (UTC) |
+|---|---|---|
+| 1 (Mon review) | Sunday | `0 18 * * 0` → 22:00 UAE Sunday |
+| 2 (Wed review) | Tuesday | `0 18 * * 2` → 22:00 UAE Tuesday |
+| 3 (Fri review) | Thursday | `0 18 * * 4` → 22:00 UAE Thursday |
+
+Fan-out exceeds Vercel hobby's 60s function timeout for full slots (12+ events × ~40s each). Production needs Vercel Pro extended duration (300s) OR a background queue.
+
+**On-demand AI brain runs:** every campaign card on the dashboard has a "⚡ Re-run AI brain" button (any @platinumlist.net user can click after SSO). Triggers `/api/run-brain` for that single event. Spend logged.
+
+**Per-step approve/override (writes to `dca_decisions`):**
+- Each tactical step has Approve / Dismiss checkboxes
+- Dismissed steps require a structured reason dropdown ("Cost too risky / Wrong audience / Missed context / Agency rule / Step too aggressive / Step not aggressive enough / Other") + optional notes
+- If user changes the primary verb itself: same structured reason dropdown + notes
+- Mandatory `expected_outcome` textbox (dropdown with AI-suggested options + free text)
+- Submit Decision writes one row to `dca_decisions` feeding the monthly learning loop
+
 ## The 6-Lens Decision Engine
 
 When a Red Flag fires, walk ALL 6 lenses in order. Each contributes — never stop early. Combine into one card with primary cause + contributing factors.

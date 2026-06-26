@@ -53,3 +53,7 @@ gcp-*.json
 # env files (explicit reinforcement of lines above; real secrets never committed)
 .env
 .env.production
+
+# secrets / tokens (Sacred Rule #10) + LibreOffice lock files
+*token*.txt
+.~lock.*#
