@@ -96,10 +96,11 @@ const SCHEMA =
   `Return ONLY this JSON: {"lens_score": <0-100 int>, "severity": "green"|"yellow"|"red", ` +
   `"diagnosis_bullets": [<2-3 atomic cited strings>], "cluster_benchmark_used": <string>, ` +
   `"analog_event_cited": <string>, "confidence": "high"|"medium"|"low"}. ` +
-  `Scoring: 0-29 green (healthy), 30-60 yellow (contributing factor), 61-100 red (primary cause). ` +
-  `Every bullet must cite a number from the data; if you lack data for a point, write "no data for <x>". ` +
-  `LEAD the FIRST diagnosis bullet with the strongest benchmark comparison available — cluster baseline, WoW delta, OR an analog/sibling citation — whichever has the most-citable gap, in the form ` +
-  `"CTR 3.21% is 47% below the Arabic Events mid-price cluster (6.0%)" or "ROAS 8.3x lags the Atif Aslam analog (16.4x) by 50%", NOT "CTR is dropping". ` +
+  `SCORE 0-100 by comparing this event's metrics to the CLUSTER MEDIAN benchmark — NOT to the analog event. The analog is REFERENCE CONTEXT only and is often an outlier; never score against it. ` +
+  `Mapping: at/above the cluster median (lower CPA, higher CTR/ROAS) = healthy → 0-29 green. Within ±15% of the median = drifting → 30-60 yellow. Worse than the median by >15% (CPA above it, or CTR/ROAS below it) = problem → 61-100 red. ` +
+  `If a metric BEATS the cluster median (e.g. CPA well below it), that is GOOD — do NOT label it "burning"/"wasted"/"action needed" just because some analog is lower. ` +
+  `LEAD the FIRST diagnosis bullet with the CLUSTER comparison, in the form "Meta CPA AED 14 is 60% below the cluster average of AED 36 — performing well", NOT "below analog (Atif AED 8) — burning". ` +
+  `If there is NO matching cluster, say "No reliable benchmark — judged on the event's own history only" and set confidence "low". ` +
   `For "cluster_benchmark_used", write it as a plain-English sentence a manager can read, e.g. ` +
   `2.33% CTR is the average across 111 similar Arabic Events at mid price band — NOT a code like Arabic Events/mid (n=111). ` +
   `If no benchmark data exists at all, say so plainly in the first bullet. ` +
@@ -111,9 +112,9 @@ type LensCfg = { window: string; rubric: string; data: (r: EventReport) => Recor
 
 const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
   internal: {
-    window: "3d vs prior 3d",
+    window: "last 3 full days vs prior 3 full days",
     rubric:
-      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge the 3-day sales trajectory vs the prior 3 days, marketing ticket share, and whether ads are pulling their weight. High score = event-level demand problem (not the ads).",
+      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge the LAST 3 FULL DAYS sales trajectory vs the prior 3 full days (the sales_3d_aed / prior_3d_sales_aed fields — NOT the 7d figure), marketing ticket share, and whether ads are pulling their weight. High score = event-level demand problem (not the ads).",
     data: (r) => {
       const t = internal3d(r);
       return {
@@ -202,14 +203,41 @@ function coerce(lens: LensName, o: Partial<LensOutput>): LensOutput {
   };
 }
 
+/** True when the matched cluster is missing or too thin to anchor a score. */
+function clusterWeak(report: EventReport): boolean {
+  const c = report.clusterBaseline;
+  return !c || !c.matched || (c.sample_size ?? 0) < 20;
+}
+
 async function runHaikuLens(lens: Exclude<LensName, "market">, report: EventReport, eventName: string): Promise<LensOutput> {
+  // Fix B: GA4 with no funnel rows in the window → honest "No data yet" (no AI call,
+  // no fabricated "Funnel healthy"). Sacred Rule #11.
+  if (lens === "ga4" && !(report.funnel.window.users_on_lp > 0)) {
+    return {
+      lens: "ga4",
+      lens_score: null,
+      severity: "neutral",
+      diagnosis_bullets: ["Funnel data unavailable for this window — likely a GA4 upstream join issue. Cannot assess user behaviour."],
+      cluster_benchmark_used: "none available",
+      analog_event_cited: "none available",
+      confidence: "low",
+    };
+  }
+
   const cfg = CONFIG[lens];
   const user =
     `${cfg.rubric}\n\nEVENT: ${eventName}\nWINDOW: ${cfg.window}\n` +
     `DATA: ${JSON.stringify(cfg.data(report))}\n` +
     `CLUSTER BASELINE: ${clusterStr(report)}\nANALOGS: ${analogStr(report)}\n\n${SCHEMA}`;
   const { data } = await chatJSON<Partial<LensOutput>>({ model: "haiku", system: MASTER_SYSTEM, user, maxTokens: 1200 });
-  return coerce(lens, data);
+  const out = coerce(lens, data);
+
+  // Fix A.2: Trust downgrade — cluster-anchored lenses can't be HIGH trust when
+  // the benchmark is missing or thin (n<20). Scores lean on the cluster median.
+  if ((lens === "meta" || lens === "google" || lens === "internal") && clusterWeak(report)) {
+    out.confidence = "low";
+  }
+  return out;
 }
 
 async function runMarketLens(report: EventReport, eventName: string): Promise<LensOutput> {

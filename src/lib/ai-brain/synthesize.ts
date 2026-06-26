@@ -69,7 +69,7 @@ export async function synthesize(
   lenses: LensOutput[],
 ): Promise<Verdict> {
   const lensSummary = lenses
-    .map((l) => `- ${l.lens}: score ${l.lens_score} (${l.severity}, conf ${l.confidence}) — ${l.diagnosis_bullets.join("; ") || "no findings"}`)
+    .map((l) => `- ${l.lens}: ${l.lens_score == null ? "NO DATA" : `score ${l.lens_score}`} (${l.severity}, trust ${l.confidence}) — ${l.diagnosis_bullets.join("; ") || "no findings"}`)
     .join("\n");
 
   const kpis = `sales AED ${r2(report.kpis.total_sales_aed)}, spend AED ${r2(report.kpis.total_spend_aed)}, ROAS ${r2(report.kpis.total_roas)}x, tickets ${report.kpis.tickets_sold}, avg price AED ${r2(report.kpis.avg_ticket_price)}`;
@@ -93,7 +93,8 @@ export async function synthesize(
     `• PAUSE — show date already passed, OR event ROAS < 50% of cluster p50 for 5+ days, OR Meta CPA > 3x ticket price sustained. Give the reason + restart criteria.\n` +
     `• KILL — event status is "ended", OR zero conversions on 7+ days of real spend (>1000 AED). Give cleanup steps.\n` +
     `• REMARKET — traffic exists (GA4 / Meta conversions / Google clicks) BUT conversion rate < 1% (browsing, not buying). Give retarget-pool details.\n` +
-    `strategic_context MUST OPEN with the triggering rule, e.g. "HOLD triggered: ROAS 19x ≥ cluster 14x, no WoW decline >15%, no red lens."\n\n` +
+    `strategic_context MUST OPEN with the triggering rule, e.g. "HOLD triggered: ROAS 19x ≥ cluster 14x, no WoW decline >15%, no red lens."\n` +
+    `Lens scores are anchored to the CLUSTER MEDIAN. Do NOT escalate to PAUSE/KILL because a lens looks weak vs an analog outlier — only act on metrics that are genuinely worse than the cluster median. A lens marked NO DATA (e.g. GA4 with no funnel rows) is MISSING information — never treat it as a green/healthy contributing factor.\n\n` +
     // ── tactical step format ─────────────────────────────────────────
     `primary_lens = the single highest-signal red lens (or null if all green). contributing_lenses = lenses scoring >30 that aren't primary.\n` +
     `EVERY tactical_step MUST contain ALL of: (1) the EXACT name from the data (ad-set/audience/campaign/ad-group string — never "narrow audience" without naming which); (2) a SPECIFIC budget in AED + duration in days; (3) a SPECIFIC success metric to check at the end; (4) WHO executes — "Khaled (manual)" or an auto-pause threshold or "Manual Review Required"; (5) the REASON beyond the metric gap (WHY this action, not just "underperforms").\n` +

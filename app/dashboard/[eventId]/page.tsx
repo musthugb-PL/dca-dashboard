@@ -112,16 +112,23 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   const cb = report.clusterBaseline;
   const d = report.deltas;
 
+  // Fix F: the Internal lens is last-3-full-days vs prior-3, NOT the 7d window.
+  const dailyAsc = [...report.sales.daily].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const sum3 = (arr: typeof dailyAsc, k: "rev" | "tickets") => arr.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  const last3Sales = sum3(dailyAsc.slice(-3), "rev");
+  const prior3Sales = sum3(dailyAsc.slice(-6, -3), "rev");
+  const last3Tickets = sum3(dailyAsc.slice(-3), "tickets");
+  const prior3Tickets = sum3(dailyAsc.slice(-6, -3), "tickets");
+  const pctPair = (cur: number, prev: number): Wow | undefined => (prev > 0 ? { pct: (cur - prev) / prev, goodUp: true } : undefined);
+
   // ---- per-lens tile sets (real metrics + WoW + cluster comparison) ----
-  // Note: overall ROAS (sales/spend) is NOT compared to the cluster's marketing
-  // ROAS p50 — different metrics (org "don't conflate" rule); WoW only here.
+  // Internal tiles are 3d-vs-prior-3d (Fix F); overall ROAS stays a 7d figure.
   const internalTiles: Tile[] = [
-    { label: "Sales", value: aed(report.kpis.total_sales_aed), wow: wowCmp(d?.total_sales, true) },
-    { label: "Tickets", value: intFmt(report.kpis.tickets_sold), wow: wowCmp(d?.tickets, true) },
-    { label: "Orders", value: intFmt(report.sales.orders_count) },
+    { label: "Sales (3d)", value: aed(last3Sales), wow: pctPair(last3Sales, prior3Sales) },
+    { label: "Tickets (3d)", value: intFmt(last3Tickets), wow: pctPair(last3Tickets, prior3Tickets) },
+    { label: "ROAS (total, 7d)", value: roasFmt(report.kpis.total_roas), wow: wowCmp(d?.total_roas, true) },
+    { label: "Sales (7d)", value: aed(report.kpis.total_sales_aed) },
     { label: "Avg price", value: aed(report.kpis.avg_ticket_price) },
-    { label: "Avg tix/order", value: report.kpis.avg_tickets_per_order.toFixed(2) },
-    { label: "ROAS (total)", value: roasFmt(report.kpis.total_roas), wow: wowCmp(d?.total_roas, true) },
   ];
   const metaTiles: Tile[] = meta
     ? [
@@ -157,13 +164,11 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   );
 
   // ---- Fix 11: per-lens hero metric (+ sparkline series for Internal) ----
-  const dailySorted = [...report.sales.daily].sort((a, b) => (a.date < b.date ? -1 : 1));
-  const last3Sales = dailySorted.slice(-3).reduce((s, x) => s + (x.rev || 0), 0);
   const internalHero: Hero = {
     label: "Sales · last 3 days",
     value: aed(last3Sales),
-    pill: wowCmp(d?.total_sales, true),
-    series: dailySorted.map((x) => x.rev),
+    pill: pctPair(last3Sales, prior3Sales),
+    series: dailyAsc.map((x) => x.rev),
   };
   const metaHero: Hero | undefined = meta
     ? { label: "Meta · CPA", value: aed(meta.cpa), pill: wowCmp(d?.meta_cpa, false) }
@@ -196,6 +201,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
           <StatusPill status={report.event.status} />
         </div>
         <div className="dca-subtitle t-caption">
+          <span className="dca-chip dca-id-chip">Event {params.eventId}</span>
           {report.event.country && <span>{report.event.country}</span>}
           {report.event.venue && (
             <>
@@ -229,6 +235,11 @@ export default async function EventReportPage({ params }: { params: { eventId: s
         >
           {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
           <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
+            {/* Fix D — data provenance badge */}
+            <p className="dca-source-badge t-caption">
+              Data: BQ channels_3 + Supabase CC · last 7 full days ending yesterday ({dateFrom} → {dateTo}, UTC) · Tier 1/2/3 Meta attribution.
+              {" "}The Marketing Insights Dashboard may differ slightly (calendar-week window / UAE timezone) — see bq-event.ts.
+            </p>
             <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
             <div className="dca-report-grid">
               <KpiTile label="Sales" value={aed(report.kpis.total_sales_aed)} d={report.deltas?.total_sales.pct} goodUp />
@@ -540,7 +551,7 @@ function LensCard({
           <span className="dca-lensbar-name t-caption">{lens.name}</span>
         </span>
         <span className="dca-lensbar-right t-caption">
-          {lo ? `score ${lo.lens_score} · ${lo.confidence}` : lens.window}
+          {lo ? `${lo.lens_score == null ? "no data" : `score ${lo.lens_score}`} · trust ${lo.confidence}` : lens.window}
         </span>
       </div>
 

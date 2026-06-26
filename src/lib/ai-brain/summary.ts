@@ -21,7 +21,7 @@ export function leadingLens(analysis: BrainAnalysis): LensOutput | null {
   }
   const withBullets = lenses.filter((l) => l.diagnosis_bullets.length);
   if (withBullets.length) {
-    return withBullets.reduce((a, b) => (b.lens_score > a.lens_score ? b : a));
+    return withBullets.reduce((a, b) => ((b.lens_score ?? -1) > (a.lens_score ?? -1) ? b : a));
   }
   return primary ?? lenses[0] ?? null;
 }

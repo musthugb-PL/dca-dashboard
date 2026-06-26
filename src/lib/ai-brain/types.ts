@@ -1,6 +1,6 @@
 /** Shared AI-brain output types (P2.2). */
 
-export type Severity = "green" | "yellow" | "red";
+export type Severity = "green" | "yellow" | "red" | "neutral";
 export type Confidence = "high" | "medium" | "low";
 export type LensName = "internal" | "meta" | "google" | "ga4" | "last_week" | "market";
 export type Action = "KILL" | "PAUSE" | "OPTIMIZE" | "SCALE" | "REMARKET" | "HOLD";
@@ -9,7 +9,7 @@ export const LENS_ORDER: LensName[] = ["internal", "meta", "google", "ga4", "las
 
 export type LensOutput = {
   lens: LensName;
-  lens_score: number; // 0-100
+  lens_score: number | null; // 0-100, or null = no data (honest "No data yet")
   severity: Severity;
   diagnosis_bullets: string[]; // 2-3 atomic, cited
   cluster_benchmark_used: string; // named benchmark or "none available"

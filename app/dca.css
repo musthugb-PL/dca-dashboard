@@ -303,9 +303,17 @@
 .dca-verdict-banner--pro    { background: var(--poodle-90, var(--bg-floating)); border-left-color: var(--poodle-40); }
 .dca-verdict-banner--pro .t-title-base, .dca-verdict-banner--pro .dca-verdict-glyph { color: var(--poodle-40); }
 
-/* Fix 14/16 — "continue, no changes" step rendered as a green win, not a checkbox */
-.dca-step-continue { display: flex; align-items: center; gap: var(--spacing-8); padding: var(--spacing-12); background: var(--accent-success-light); border-radius: var(--radius-sm); color: var(--content-primary); }
-.dca-step-continue-tick { color: var(--accent-success); font-weight: var(--font-weight-bold); font-size: var(--font-size-lg); }
+/* "Continue, no changes" step — neutral (HOLD is just one outcome, not a celebration; STEP 1 Fix E) */
+.dca-step-continue { display: flex; align-items: center; gap: var(--spacing-8); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); color: var(--content-primary); }
+.dca-step-continue-tick { color: var(--content-secondary); font-weight: var(--font-weight-bold); font-size: var(--font-size-lg); }
+
+/* HOLD / neutral verdict banner (STEP 1 Fix E) */
+.dca-verdict-banner--neutral { background: var(--bg-secondary); border-left-color: var(--content-highlight); }
+.dca-verdict-banner--neutral .t-title-base, .dca-verdict-banner--neutral .dca-verdict-glyph { color: var(--content-primary); }
+
+/* Fix C — event-id chip · Fix D — data provenance badge */
+.dca-id-chip { font-size: var(--font-size-xs); }
+.dca-source-badge { color: var(--content-secondary); margin: 0 0 var(--spacing-12); padding: var(--spacing-8) var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); }
 
 /* Fix 18 — dashboard list card polish */
 .dca-listcard { position: relative; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease; }

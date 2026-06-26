@@ -64,7 +64,7 @@ const ACTIONS = ["HOLD", "OPTIMIZE", "SCALE", "PAUSE", "KILL", "REMARKET"] as co
 
 /** Per-verb personality: glyph + tone line + colour class (readable across a room). */
 const VERB_META: Record<string, { glyph: string; tone: string; cls: string }> = {
-  HOLD: { glyph: "✓", tone: "Healthy — keep going", cls: "good" },
+  HOLD: { glyph: "•", tone: "Performing within range", cls: "neutral" },
   SCALE: { glyph: "↗", tone: "Winning — push more", cls: "good" },
   OPTIMIZE: { glyph: "⚙", tone: "Needs tuning", cls: "warn" },
   PAUSE: { glyph: "⏸", tone: "Stop spending", cls: "orange" },
@@ -177,7 +177,7 @@ export default function DecisionFlow({
 
   const verb = verdict?.recommended_action ?? "—";
   const vm = VERB_META[verb] ?? { glyph: "○", tone: "Not analysed", cls: "neutral" };
-  const celebratory = verb === "HOLD" || verb === "SCALE";
+  const celebratory = verb === "SCALE"; // HOLD is neutral — just one outcome of six
   const lensLine = verdict
     ? `${verdict.primary_lens ? `Primary: ${LENS_LABEL[verdict.primary_lens]}` : "No single primary lens"}` +
       (verdict.contributing_lenses.length ? ` · Contributing: ${verdict.contributing_lenses.map((k) => LENS_LABEL[k]).join(", ")}` : "")
@@ -193,7 +193,10 @@ export default function DecisionFlow({
             <span className="dca-sticky-tone t-title-sm">{verb !== "—" ? `${verb} · ${vm.tone}` : "Not analysed yet"}</span>
             <span className="t-body-sm-short">{lensLine}</span>
             <span className="t-caption">
-              Confidence: {(verdict?.confidence ?? "—").toUpperCase()} · Risk: {manualReviewSteps.length} manual review{manualReviewSteps.length === 1 ? "" : "s"}
+              <span title="HIGH = clean data across all 6 lenses. MED = some lenses had data gaps. LOW = thin data, treat as guidance not gospel.">
+                Trust: {(verdict?.confidence ?? "—").toUpperCase()}
+              </span>
+              {" · "}Risk: {manualReviewSteps.length} manual review{manualReviewSteps.length === 1 ? "" : "s"}
               {" · "}{counts.total} step{counts.total === 1 ? "" : "s"} · {counts.approved} approved · {counts.pending} pending
             </span>
           </div>
@@ -227,7 +230,7 @@ export default function DecisionFlow({
               <span className="dca-verdict-glyph" aria-hidden>{vm.glyph}</span>
               <div>
                 <div className="t-title-base">{verb} — {vm.tone}</div>
-                <div className="dca-lens-window t-caption">{lensLine} · AI confidence {verdict.confidence}</div>
+                <div className="dca-lens-window t-caption" title="Trust: HIGH = clean data across all 6 lenses · MED = some data gaps · LOW = thin data, guidance not gospel">{lensLine} · Trust {verdict.confidence}</div>
               </div>
             </div>
 

@@ -20,6 +20,20 @@
  *   - GA4_funnel_LP_table: event key = `event_id` (INT64), date =
  *     `session_date`. No literal `users_add_to_cart` column — the
  *     cart-equivalent stage is `users_on_ticket_office`.
+ *
+ * ── MID (Marketing Insights Dashboard) discrepancy — investigated 2026-06-26 ──
+ * User saw Miami (105817) last-7d figures differ slightly vs marketing-insights.
+ * Root cause is the WINDOW DEFINITION, not timezone or cap:
+ *   - channels_3.date is a DATE (no time component) → no intra-day TZ ambiguity;
+ *     a window difference is purely WHICH calendar dates are summed.
+ *   - Our window = last 7 FULL days ending YESTERDAY (slot.ts reviewWindow).
+ *     For 105817 on 2026-06-26 → 06-19..06-25: spend 1675, 28 tix, rev 9745.
+ *   - Trailing 7d incl. today (06-20..06-26): spend 1441 (today partial + drops
+ *     06-19). Calendar week Mon–Sun (06-22..28): spend 910 (week still in progress).
+ *   So MID likely uses a calendar-week or trailing-7d-incl-today window → small
+ *   deltas. Same source table, same CC attribution, same cap. The report page
+ *   shows a provenance badge stating our exact window so the team can reconcile.
+ *   (If exact MID parity is ever required, switch reviewWindow to MID's window.)
  */
 
 import { bq, BQ_PROJECT, BQ_DATASET } from "@/lib/bigquery";
