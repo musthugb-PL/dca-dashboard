@@ -368,6 +368,9 @@
 .dca-tl-pill--pos { background: var(--accent-success-light); color: var(--accent-success); }
 .dca-tl-pill--mid { background: var(--accent-caution-light); color: var(--accent-caution); }
 .dca-tl-pill--neg { background: var(--accent-alert-light); color: var(--accent-alert); }
+/* Fix 12 — analog-borrowed decision cards */
+.dca-tl-card--analog { border: 1px solid var(--poodle-40); }
+.dca-tl-analog { color: var(--poodle-40); font-weight: var(--font-weight-semibold); }
 
 .dca-tl-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-16); margin-top: var(--spacing-16); padding-top: var(--spacing-16); border-top: 1px solid var(--aussie-90); }
 .dca-tl-summary-col { display: flex; flex-direction: column; gap: var(--spacing-6); }

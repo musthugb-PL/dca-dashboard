@@ -368,9 +368,10 @@ function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
     return (
       <div key={i} className="dca-tl-node">
         <span className={`dca-tl-icon dca-tl-icon--${m.cls}`} aria-hidden>{it.outcome === "positive" ? "✓" : it.outcome === "negative" ? "⚠" : "↗"}</span>
-        <div className="dca-tl-card">
+        <div className={`dca-tl-card${it.from_analog ? " dca-tl-card--analog" : ""}`}>
           <span className="dca-tl-date t-caption">{fmtWhen(it.when)}</span>
           <span className="dca-tl-title t-body-sm-strong">{it.action ?? SOURCE_LABEL[it.source] ?? "Note"}</span>
+          {it.from_analog && <span className="dca-tl-analog t-caption">From {it.from_analog} · similar event</span>}
           <span className="dca-tl-sub t-caption">{it.text.length > 80 ? it.text.slice(0, 80) + "…" : it.text}</span>
           <span className={`dca-tl-pill dca-tl-pill--${m.cls}`}>{m.label} · inferred</span>
         </div>
@@ -384,7 +385,9 @@ function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
       <div className="dca-tl-head">
         <div>
           <h2 className="t-title-sm">⏱ Past Decisions Timeline</h2>
-          <p className="t-caption" style={{ margin: "var(--spacing-2) 0 0", color: "var(--content-secondary)" }}>{n} decisions logged</p>
+          <p className="t-caption" style={{ margin: "var(--spacing-2) 0 0", color: "var(--content-secondary)" }}>
+            {pd.viaAnalogs ? `${n} decisions on similar events — no history on this event yet` : `${n} decisions logged`}
+          </p>
         </div>
         <div className="dca-tl-legend t-caption">
           <span><span className="dca-tl-dot dca-tl-dot--pos" /> Improved</span>

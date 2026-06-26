@@ -262,11 +262,14 @@ export type PastDecisionItem = {
   event_name: string | null;
   action: string | null; // final_action / action_taken (null for free-text notes)
   text: string; // reasoning / prediction / notes, concatenated + trimmed
+  from_analog?: string; // set when borrowed from a similar event (Fix 12 fallback)
 };
 
 export type PastDecisions = {
   items: PastDecisionItem[];
   count: number;
+  /** True when items come from similar events (this event has no own history). */
+  viaAnalogs?: boolean;
 };
 
 // ---------------------------------------------------------------------------
