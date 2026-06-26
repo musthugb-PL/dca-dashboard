@@ -529,26 +529,27 @@ function LensCard({
   );
 }
 
+/** Plain-English cluster reference (no p50/n= jargon) — fallback when no AI string. */
 function clusterLine(report: EventReport): string {
   const cb = report.clusterBaseline;
-  if (!cb) return "Cluster baseline: —";
-  if (!cb.matched) {
-    return `Cluster baseline: no match (category "${cb.event_category || "?"}" / band ${cb.price_band})`;
-  }
-  const pct = (x: number | null) => (x === null ? "?" : (x * 100).toFixed(2) + "%");
-  const aedp = (x: number | null) => (x === null ? "?" : "AED " + Math.round(x));
-  const roasp = (x: number | null) => (x === null ? "?" : x.toFixed(1) + "x");
-  return `Cluster ${cb.cluster_category} / ${cb.price_band} (n=${cb.sample_size}, ${cb.strategy}): CTR p50 ${pct(cb.ctr_p50)} · CPA p50 ${aedp(cb.cpa_p50)} · ROAS p50 ${roasp(cb.roas_p50)}`;
+  if (!cb || !cb.matched) return "No comparable cluster of similar events found";
+  const bits: string[] = [];
+  if (cb.ctr_p50 != null) bits.push(`CTR ${(cb.ctr_p50 * 100).toFixed(1)}%`);
+  if (cb.cpa_p50 != null) bits.push(`CPA AED ${Math.round(cb.cpa_p50)}`);
+  if (cb.roas_p50 != null) bits.push(`ROAS ${cb.roas_p50.toFixed(1)}x`);
+  const avg = bits.length ? ` (avg ${bits.join(" · ")})` : "";
+  return `The average across ${cb.sample_size ?? "similar"} similar ${cb.cluster_category} events at ${cb.price_band} price${avg}`;
 }
 
+/** Plain-English analog reference — fallback when no AI string. */
 function analogLine(report: EventReport, lensName: string): string {
   const a = report.analogs;
-  if (!a || a.length === 0) return "Analog: none found";
+  if (!a || a.length === 0) return "No close analog event found";
   const top = a[0];
-  const pct = (x: number | null) => (x === null ? "n/a" : (x * 100).toFixed(2) + "%");
+  const pct = (x: number | null) => (x === null ? "n/a" : (x * 100).toFixed(1) + "%");
   let metric: string;
   if (lensName === "Meta") metric = `Meta CTR ${pct(top.meta_ctr)}`;
   else if (lensName === "Google") metric = `Google CTR ${pct(top.google_ctr)}`;
   else metric = `ROAS ${top.roas.toFixed(1)}x`;
-  return `Analog: ${top.event_id} "${top.name}" — ${metric}, sales AED ${Math.round(top.sales_aed)} (${a.length} of top-3 shown)`;
+  return `Closest similar event: ${top.name} — ${metric}, sales AED ${Math.round(top.sales_aed).toLocaleString("en-US")} in the same window`;
 }

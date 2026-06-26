@@ -103,6 +103,7 @@ const SCHEMA =
   `For "cluster_benchmark_used", write it as a plain-English sentence a manager can read, e.g. ` +
   `2.33% CTR is the average across 111 similar Arabic Events at mid price band — NOT a code like Arabic Events/mid (n=111). ` +
   `If no benchmark data exists at all, say so plainly in the first bullet. ` +
+  `PLAIN ENGLISH for a marketer — NEVER write "p50", "percentile", or "n=" in diagnosis_bullets, cluster_benchmark_used, or analog_event_cited. Say "the average across 111 similar events" / "10x above similar events", not "p50 ... n=111". ` +
   `CRITICAL — emit STRICTLY VALID JSON parseable by JSON.parse: escape every internal double-quote as \\", ` +
   `put NO literal newline inside any string value, and avoid double quotes inside strings (use single quotes for names).`;
 

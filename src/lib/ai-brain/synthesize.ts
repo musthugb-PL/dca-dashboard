@@ -106,7 +106,10 @@ export async function synthesize(
     `If a winning sibling segment is listed AND this event underperforms on that channel, you MAY add ONE "test [Sibling]'s winning <named segment> — allocate AED X for Y days" step.\n` +
     `CRITICAL (Sacred Rule #11): if there is NO real within-event efficiency gap or opportunity, do NOT invent one. Output a single tactical step "No within-event optimization needed — current allocation is performing." Cite ACTUAL names + ACTUAL numbers only.\n\n` +
     `strategic_context = one paragraph (opening with the triggering rule) weaving channel / pricing / commercial angles, grounded in cited numbers. ` +
-    `expected_outcome_template = one editable sentence the approver completes (e.g. "Expect Meta CPA to fall from X to Y within 3 days").\n\n` +
+    `For HOLD and SCALE, OPEN with an affirming sentence about what's working ("This campaign is performing — …") before any nuance; a healthy verdict should feel earned, not boring. ` +
+    `Write PLAIN ENGLISH for a marketer — NEVER use "p50", "percentile", or "n=" notation anywhere; say "the average across 111 similar events" or "10x above similar events" instead. ` +
+    `expected_outcome_template = one editable sentence the approver completes. ` +
+    `expected_outcome_options = 3-5 outcomes SPECIFIC to THIS verdict — reference the actual problem from the diagnoses, use concrete numbers (CPA below AED X, ROAS reaches Yx, CTR recovers to Z%), map to the tactical steps' success metrics, and include ONE "monitor only — no action needed" style option. Plain English, no jargon.\n\n` +
     VERDICT_SCHEMA;
 
   const { data } = await chatJSON<Verdict>({
