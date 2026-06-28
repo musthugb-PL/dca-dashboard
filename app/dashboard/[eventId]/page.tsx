@@ -5,8 +5,8 @@ import { reviewWindow, daysSince } from "@/src/lib/slot";
 import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
 import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/types";
-import { getPastDecisionsContext } from "@/src/lib/data/lens5";
-import type { PastDecisions } from "@/src/lib/data/events";
+import { getPastDecisionsContext, getAnalogDecisions } from "@/src/lib/data/lens5";
+import type { PastDecisions, PastDecisionItem, AnalogEvent, AffinitySibling } from "@/src/lib/data/events";
 import DeltaPill from "@/app/components/DeltaPill";
 import DecisionFlow from "@/app/components/DecisionFlow";
 
@@ -44,6 +44,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
       includePrior: true,
       includeCluster: true,
       includeAnalogs: true,
+      includeAffinitySiblings: true, // Fix H — "Similar event patterns" section
     });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -101,12 +102,21 @@ export default async function EventReportPage({ params }: { params: { eventId: s
   const google = report.channels.find((c) => c.source.toLowerCase() === "google");
   const f = report.funnel.window;
 
-  // Fix 6: past decisions for this event (4 sources, fuzzy name match — same as Lens 5).
+  // Past decisions for THIS event — exact event_id only (Fix G).
   let pastDecisions: PastDecisions = { items: [], count: 0 };
   try {
     pastDecisions = await getPastDecisionsContext(Number(params.eventId), report.event.name || "");
   } catch {
     /* decision history is best-effort */
+  }
+
+  // Fix H: analogs' own past decisions for the "Similar event patterns" section.
+  let analogDecisions: Record<string, PastDecisionItem[]> = {};
+  try {
+    const analogIds = (report.analogs ?? []).slice(0, 3).map((a) => a.event_id);
+    if (analogIds.length) analogDecisions = await getAnalogDecisions(analogIds);
+  } catch {
+    /* analog context is best-effort */
   }
 
   const cb = report.clusterBaseline;
@@ -265,6 +275,13 @@ export default async function EventReportPage({ params }: { params: { eventId: s
               />
             ))}
           </div>
+
+          {/* Fix H — Similar event patterns (cross-event reference, between lenses & verdict) */}
+          <SimilarEventPatterns
+            analogs={report.analogs ?? []}
+            siblings={report.affinitySiblings ?? []}
+            analogDecisions={analogDecisions}
+          />
         </DecisionFlow>
       </div>
     </main>
@@ -355,7 +372,8 @@ function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
       <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
         <h2 className="t-title-sm">⏱ Past Decisions Timeline</h2>
         <p className="t-body-sm-short" style={{ color: "var(--content-secondary)", margin: "var(--spacing-8) 0 0" }}>
-          No past decisions logged for this event yet — start by approving today’s verdict to build the loop.
+          No exact past decisions logged for this event yet — start by approving today’s verdict to build the loop.
+          {" "}(Similar events’ context is shown separately below.)
         </p>
       </section>
     );
@@ -461,6 +479,64 @@ function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
       <p className="t-caption" style={{ color: "var(--content-tertiary)", margin: "var(--spacing-8) 0 0" }}>
         Outcomes inferred from note language — no numeric ROI in the source data.
       </p>
+    </section>
+  );
+}
+
+/** Fix H — cross-event reference (analogs + affinity siblings). NOT this event's decisions. */
+function SimilarEventPatterns({
+  analogs, siblings, analogDecisions,
+}: {
+  analogs: AnalogEvent[];
+  siblings: AffinitySibling[];
+  analogDecisions: Record<string, PastDecisionItem[]>;
+}) {
+  const tops = analogs.slice(0, 3);
+  const sibs = siblings.slice(0, 3);
+  if (tops.length === 0 && sibs.length === 0) return null;
+  const ctr = (x: number | null) => (x == null ? "n/a" : pctFmt(x));
+
+  return (
+    <section className="pl-card pl-card-elevated pl-card-padded dca-sim" style={{ marginTop: "var(--spacing-12)" }}>
+      <h2 className="t-title-sm">Similar event patterns</h2>
+      <p className="dca-sim-sub t-caption">Insights from analog events with a similar profile — cross-event reference, NOT decisions for this event.</p>
+      <div className="dca-sim-grid">
+        {tops.map((a) => (
+          <div key={`a-${a.event_id}`} className="dca-sim-card">
+            <span className="dca-sim-tag dca-sim-tag--analog">Analog</span>
+            <span className="dca-sim-name t-body-sm-strong">{a.name || `Event ${a.event_id}`}</span>
+            <span className="t-caption">Last 7d: ROAS {roasFmt(a.roas)} · Meta CTR {ctr(a.meta_ctr)} · Google CTR {ctr(a.google_ctr)} · sales {aed(a.sales_aed)}</span>
+            {analogDecisions[a.event_id]?.length ? (
+              <div className="dca-sim-worked">
+                <span className="dca-sim-worked-h t-caption">What worked there:</span>
+                <ul className="t-caption" style={{ margin: "var(--spacing-2) 0 0", paddingLeft: "var(--spacing-16)" }}>
+                  {analogDecisions[a.event_id].slice(0, 2).map((d, i) => (
+                    <li key={i}>{d.when ? `${d.when}: ` : ""}{d.action ? `${d.action} — ` : ""}{d.text.length > 90 ? d.text.slice(0, 90) + "…" : d.text}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {sibs.map((s) => {
+          const w = (s.winning_segments ?? [])[0];
+          return (
+            <div key={`s-${s.event_id}`} className="dca-sim-card">
+              <span className="dca-sim-tag dca-sim-tag--sib">Affinity sibling · {s.affinity_norm.toFixed(2)}</span>
+              <span className="dca-sim-name t-body-sm-strong">{s.name || `Event ${s.event_id}`}</span>
+              <span className="t-caption">Currently running, last 7d: ROAS {roasFmt(s.roas)} · sales {aed(s.sales_aed)}</span>
+              {w ? (
+                <>
+                  <span className="t-caption">Winning {w.source} segment: “{w.ad_name ?? w.campaign ?? "—"}” (ROAS {w.roas == null ? "n/a" : roasFmt(w.roas)})</span>
+                  <span className="dca-sim-rec t-caption">Recommended: test this audience pattern in your own campaign (within-event only).</span>
+                </>
+              ) : (
+                <span className="t-caption" style={{ color: "var(--content-secondary)" }}>No clearly-winning segment to borrow.</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

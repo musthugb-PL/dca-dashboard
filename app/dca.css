@@ -400,6 +400,19 @@
 .dca-tl-pill--pos { background: var(--accent-success-light); color: var(--accent-success); }
 .dca-tl-pill--mid { background: var(--accent-caution-light); color: var(--accent-caution); }
 .dca-tl-pill--neg { background: var(--accent-alert-light); color: var(--accent-alert); }
+/* STEP 2 Fix H — Similar event patterns (cross-event reference) */
+.dca-sim { margin-top: var(--spacing-12); }
+.dca-sim-sub { color: var(--content-secondary); margin: var(--spacing-2) 0 var(--spacing-12); }
+.dca-sim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--spacing-12); }
+.dca-sim-card { display: flex; flex-direction: column; gap: var(--spacing-6); padding: var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); border-left: 3px solid var(--content-highlight); }
+.dca-sim-card .t-caption { color: var(--content-secondary); }
+.dca-sim-tag { align-self: flex-start; padding: var(--spacing-2) var(--spacing-8); border-radius: var(--radius-pill); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
+.dca-sim-tag--analog { background: var(--bg-floating); color: var(--content-primary); }
+.dca-sim-tag--sib { background: var(--poodle-90, var(--bg-floating)); color: var(--poodle-40); }
+.dca-sim-name { color: var(--content-primary); }
+.dca-sim-worked-h { color: var(--content-primary); font-weight: var(--font-weight-semibold); }
+.dca-sim-rec { color: var(--poodle-40); }
+
 /* Fix 12 — analog-borrowed decision cards */
 .dca-tl-card--analog { border: 1px solid var(--poodle-40); }
 .dca-tl-analog { color: var(--poodle-40); font-weight: var(--font-weight-semibold); }

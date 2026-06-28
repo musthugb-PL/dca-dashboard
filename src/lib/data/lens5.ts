@@ -117,8 +117,9 @@ async function fetchExactDecisions(sb: SB, eid: string, perSourceLimit: number):
 
 /**
  * Lens 5 / Fix 12: exact-event_id decisions for this event; if it has NONE,
- * fall back to the top-3 similar events' decisions (cross-event learning),
- * tagged with from_analog so the UI shows "From {analog} — similar event".
+ * STEP 2 / Fix G: EXACT event_id only — NO analog fallback. Analog events must
+ * never appear as "past decisions for THIS event" (they're shown separately in
+ * the "Similar event patterns" section). Empty when this event has no history.
  */
 export async function getPastDecisionsContext(
   eventId: number,
@@ -127,32 +128,23 @@ export async function getPastDecisionsContext(
 ): Promise<PastDecisions> {
   const sb = getSupabase();
   const own = await fetchExactDecisions(sb, String(eventId), perSourceLimit);
-  if (own.length > 0) return { items: own, count: own.length };
+  return { items: own, count: own.length };
+}
 
-  // Fallback: borrow similar events' decisions.
-  try {
-    const { data } = await sb
-      .from("dca_v_similar_events")
-      .select("similar_event_id,rank")
-      .eq("event_id", String(eventId))
-      .order("rank")
-      .limit(3);
-    const sims = (data ?? []) as { similar_event_id: string; rank: number }[];
-    if (!sims.length) return { items: [], count: 0 };
-
-    const ids = sims.map((s) => String(s.similar_event_id));
-    const { data: ev } = await sb.from("dca_v_events").select("event_id,event_name_en").in("event_id", ids);
-    const nameMap = new Map(((ev ?? []) as { event_id: string; event_name_en: string }[]).map((e) => [String(e.event_id), e.event_name_en]));
-
-    const pooled: PastDecisionItem[] = [];
-    for (const s of sims) {
-      const eid2 = String(s.similar_event_id);
-      const its = await fetchExactDecisions(sb, eid2, perSourceLimit);
-      const name = nameMap.get(eid2) ?? `event ${eid2}`;
-      for (const it of its) pooled.push({ ...it, from_analog: name });
+/**
+ * Fix H: exact past decisions for a set of ANALOG events, keyed by event_id —
+ * for the "Similar event patterns" cross-event context (NOT this event's log).
+ */
+export async function getAnalogDecisions(analogIds: string[], perAnalogLimit = 4): Promise<Record<string, PastDecisionItem[]>> {
+  const sb = getSupabase();
+  const out: Record<string, PastDecisionItem[]> = {};
+  for (const id of analogIds) {
+    try {
+      const its = await fetchExactDecisions(sb, String(id), perAnalogLimit);
+      if (its.length) out[String(id)] = its.slice(0, perAnalogLimit);
+    } catch {
+      /* best-effort per analog */
     }
-    return { items: pooled.slice(0, 12), count: Math.min(pooled.length, 12), viaAnalogs: pooled.length > 0 };
-  } catch {
-    return { items: [], count: 0 };
   }
+  return out;
 }
