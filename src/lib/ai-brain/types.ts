@@ -11,6 +11,9 @@ export type LensOutput = {
   lens: LensName;
   lens_score: number | null; // 0-100, or null = no data (honest "No data yet")
   severity: Severity;
+  /** STEP 5 FIX R — one-line plain-English read shown above the proof points
+   *  (max ~110 chars). Optional — absent on analyses persisted before STEP 5. */
+  interpretation?: string;
   diagnosis_bullets: string[]; // 2-3 atomic, cited
   cluster_benchmark_used: string; // named benchmark or "none available"
   analog_event_cited: string; // named analog + metric, or "none available"

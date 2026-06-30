@@ -128,6 +128,7 @@ function pastDecisionsStr(report: EventReport): string {
 
 const SCHEMA =
   `Return ONLY this JSON: {"lens_score": <0-100 int>, "severity": "green"|"yellow"|"red", ` +
+  `"interpretation": <ONE plain-English sentence, MAX 110 characters, summarising the read for a busy marketer — e.g. "Revenue healthy +7%, tickets softening -3%, ROAS above cluster" or "Strong on lookalikes, two broad ad sets underperforming" or "No funnel data this window">, ` +
   `"diagnosis_bullets": [<2-3 atomic cited strings>], "cluster_benchmark_used": <string>, ` +
   `"analog_event_cited": <string>, "confidence": "high"|"medium"|"low"}. ` +
   `SCORE 0-100 by comparing this event's metrics to the CLUSTER MEDIAN benchmark — NOT to the analog event. The analog is REFERENCE CONTEXT only and is often an outlier; never score against it. ` +
@@ -237,6 +238,7 @@ function coerce(lens: LensName, o: Partial<LensOutput>): LensOutput {
     lens,
     lens_score: score,
     severity: sev,
+    interpretation: o.interpretation ? String(o.interpretation).slice(0, 140) : undefined,
     diagnosis_bullets: Array.isArray(o.diagnosis_bullets) ? o.diagnosis_bullets.slice(0, 3) : [],
     cluster_benchmark_used: String(o.cluster_benchmark_used ?? "none available"),
     analog_event_cited: String(o.analog_event_cited ?? "none available"),
@@ -258,6 +260,7 @@ async function runHaikuLens(lens: Exclude<LensName, "market">, report: EventRepo
       lens: "ga4",
       lens_score: null,
       severity: "neutral",
+      interpretation: "No funnel data this window.",
       diagnosis_bullets: ["Funnel data unavailable for this window — likely a GA4 upstream join issue. Cannot assess user behaviour."],
       cluster_benchmark_used: "none available",
       analog_event_cited: "none available",

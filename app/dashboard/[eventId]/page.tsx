@@ -246,10 +246,12 @@ export default async function EventReportPage({ params }: { params: { eventId: s
         >
           {/* b. KPI strip — with WoW deltas (vs prior 7d) */}
           <section className="pl-card pl-card-elevated pl-card-padded" style={{ marginTop: "var(--spacing-16)" }}>
-            {/* Fix D — data provenance badge */}
-            <p className="dca-source-badge t-caption">
-              Data: BQ channels_3 + Supabase CC · last 7 full days ending yesterday ({dateFrom} → {dateTo}, UTC) · Tier 1/2/3 Meta attribution.
-              {" "}The Marketing Insights Dashboard may differ slightly (calendar-week window / UAE timezone) — see bq-event.ts.
+            {/* Fix D + STEP 5 FIX S — quiet single-line provenance badge (detail in tooltip) */}
+            <p
+              className="dca-source-badge"
+              title="BQ channels_3 + Supabase CC · last 7 full days ending yesterday · Tier 1/2/3 Meta attribution. The Marketing Insights Dashboard may differ slightly (calendar-week window / UAE timezone) — see bq-event.ts."
+            >
+              Source: BQ channels_3 + Supabase CC · {dateFrom} → {dateTo} (UTC) · Tier 1/2/3 Meta
             </p>
             <h2 className="t-title-sm">KPIs {report.deltas && <span className="dca-lens-window t-caption">(vs prior 7d)</span>}</h2>
             <div className="dca-report-grid">
@@ -679,6 +681,16 @@ function Sparkline({ data, cls }: { data: number[]; cls: string }) {
   );
 }
 
+/** FIX R — clamp the one-line interpretation to a clean word boundary (~115 chars),
+ *  so the rare model overshoot never truncates mid-word. */
+function clampText(s: string, max = 115): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.–-]+$/, "") + "…";
+}
+
 /** Fix 11 — Option A lens card: status banner + hero number + sparkline + mini-tiles + Why. */
 function LensCard({
   lens, lo, hasAnalysis, clusterFallback, analogFallback,
@@ -709,6 +721,11 @@ function LensCard({
       </div>
 
       <div className="dca-lensbody">
+        {/* FIX R — one-line interpretation above the proof points */}
+        {lo?.interpretation && (
+          <p className="dca-lens-interpretation">{clampText(lo.interpretation)}</p>
+        )}
+
         {/* B — hero metric + sparkline */}
         {hero && (
           <div className="dca-hero">
@@ -720,7 +737,11 @@ function LensCard({
               )}
             </div>
             {hero.series && (
-              <div className="dca-hero-spark"><Sparkline data={hero.series} cls={st.cls} /></div>
+              <div className="dca-hero-spark">
+                <Sparkline data={hero.series} cls={st.cls} />
+                {/* FIX T — what window the line represents */}
+                <span className="dca-spark-sub">{lens.key === "internal" ? "last 3d trend" : "last 7d trend"}</span>
+              </div>
             )}
           </div>
         )}

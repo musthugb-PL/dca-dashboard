@@ -162,13 +162,15 @@
   box-shadow: 0 0 24px rgba(126, 5, 232, 0.15);
 }
 
-/* 4. Typography pop — big confident numbers */
-.dca-stat-value { font-size: var(--font-size-xl); font-weight: var(--font-weight-bold); }
+/* 4. Typography — confident but calm numbers (STEP 5 FIX Q: semibold not bold,
+   tabular-nums so decimals don't jitter). */
+.dca-stat-value { font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 /* KPI strip on the report page (uses .dca-report-grid) → the dominant figures */
 .dca-report-grid .dca-tile-value {
   font-size: var(--font-size-2xl);
   line-height: var(--font-line-height-2xl);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 .dca-card-title { color: var(--content-primary); }
 
@@ -218,7 +220,7 @@
 .dca-lensbar--bad    { background: var(--accent-alert-light); }
 .dca-lensbar--nodata { background: var(--bg-secondary); }
 .dca-lensbar-left { display: flex; align-items: center; gap: var(--spacing-8); flex-wrap: wrap; }
-.dca-lensbar-glyph { font-weight: var(--font-weight-bold); }
+.dca-lensbar-glyph { font-weight: var(--font-weight-medium); }
 .dca-lensbar--good .dca-lensbar-glyph, .dca-lensbar--good .dca-lensbar-word { color: var(--accent-success); }
 .dca-lensbar--warn .dca-lensbar-glyph, .dca-lensbar--warn .dca-lensbar-word { color: var(--accent-caution); }
 .dca-lensbar--bad  .dca-lensbar-glyph, .dca-lensbar--bad  .dca-lensbar-word { color: var(--accent-alert); }
@@ -229,7 +231,7 @@
 .dca-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-16); }
 .dca-hero-main { display: flex; flex-direction: column; gap: var(--spacing-4); align-items: flex-start; min-width: 0; }
 .dca-hero-label { color: var(--content-secondary); }
-.dca-hero-value { font-size: var(--font-size-2xl); line-height: var(--font-line-height-2xl); font-weight: var(--font-weight-bold); color: var(--content-primary); }
+.dca-hero-value { font-size: var(--font-size-2xl); line-height: var(--font-line-height-2xl); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; color: var(--content-primary); }
 .dca-hero-spark { flex: none; }
 .dca-spark path { stroke: var(--content-highlight); fill: none; }
 .dca-spark circle { fill: var(--content-highlight); }
@@ -253,7 +255,7 @@
 
 .dca-proof { list-style: none; margin: var(--spacing-12) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--spacing-6); }
 .dca-proof-item { display: flex; align-items: flex-start; gap: var(--spacing-8); color: var(--content-primary); font-size: var(--font-size-sm); line-height: var(--font-line-height-sm); }
-.dca-proof-arrow { flex: none; font-weight: var(--font-weight-bold); line-height: 1.3; }
+.dca-proof-arrow { flex: none; font-weight: var(--font-weight-medium); line-height: 1.3; }
 .dca-proof-arrow--up   { color: var(--accent-success); }
 .dca-proof-arrow--down { color: var(--accent-alert); }
 .dca-proof-arrow--flat { color: var(--content-secondary); }
@@ -261,7 +263,7 @@
 
 .dca-why { margin: var(--spacing-10) 0 0; }
 .dca-why-summary { cursor: pointer; color: var(--poodle-40); }
-.dca-why-list { margin: var(--spacing-8) 0 0; padding-left: var(--spacing-16); color: var(--content-secondary); display: flex; flex-direction: column; gap: var(--spacing-4); }
+.dca-why-list { margin: var(--spacing-8) 0 0; padding-left: var(--spacing-16); color: var(--content-secondary); display: flex; flex-direction: column; gap: var(--spacing-8); line-height: 1.55; }
 
 /* B2 — sticky decision header */
 .dca-sticky {
@@ -311,9 +313,23 @@
 .dca-verdict-banner--neutral { background: var(--bg-secondary); border-left-color: var(--content-highlight); }
 .dca-verdict-banner--neutral .t-title-base, .dca-verdict-banner--neutral .dca-verdict-glyph { color: var(--content-primary); }
 
-/* Fix C — event-id chip · Fix D — data provenance badge */
+/* Fix C — event-id chip */
 .dca-id-chip { font-size: var(--font-size-xs); }
-.dca-source-badge { color: var(--content-secondary); margin: 0 0 var(--spacing-12); padding: var(--spacing-8) var(--spacing-12); background: var(--bg-secondary); border-radius: var(--radius-sm); }
+/* Fix D + STEP 5 FIX S — quiet provenance badge: tiny, muted, transparent,
+   top-right of the KPI strip. Readable for QA, never dominates the page.
+   (11px is an intentional sub-token size for this QA-only line.) */
+.dca-source-badge {
+  color: var(--content-muted, var(--content-secondary));
+  margin: 0 0 var(--spacing-8);
+  padding: 0;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Fix 18 — dashboard list card polish */
 .dca-listcard { position: relative; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease; }
@@ -356,7 +372,7 @@
 }
 .dca-step--approved { border-color: var(--accent-success); }
 .dca-step--dismissed { border-color: var(--accent-alert); opacity: 0.85; }
-.dca-step-body { color: var(--content-primary); }
+.dca-step-body { color: var(--content-primary); line-height: 1.55; }
 .dca-step-actions { display: flex; gap: var(--spacing-8); }
 .dca-override { display: flex; flex-direction: column; gap: var(--spacing-6); margin-top: var(--spacing-4); }
 .dca-final-action { display: flex; flex-direction: column; gap: var(--spacing-6); margin: var(--spacing-12) 0; }
@@ -382,7 +398,7 @@
 .dca-tl-counter--pos { border-left-color: var(--accent-success); }
 .dca-tl-counter--mid { border-left-color: var(--accent-caution); }
 .dca-tl-counter--neg { border-left-color: var(--accent-alert); }
-.dca-tl-counter-n { font-size: var(--font-size-2xl); font-weight: var(--font-weight-bold); color: var(--content-primary); }
+.dca-tl-counter-n { font-size: var(--font-size-2xl); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; color: var(--content-primary); }
 .dca-tl-counter .t-caption { color: var(--content-secondary); }
 
 .dca-tl-track { display: flex; gap: var(--spacing-12); overflow-x: auto; padding-bottom: var(--spacing-8); }
@@ -438,3 +454,25 @@
   border-radius: var(--radius-sm);
 }
 .dca-banner p { color: var(--accent-caution); }
+
+/* ==========================================================================
+   STEP 5 — UI polish
+   ========================================================================== */
+
+/* FIX R — one-line interpretation above the proof points (every lens) */
+.dca-lens-interpretation {
+  color: var(--content-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.55;
+  margin: 0 0 var(--spacing-12);
+}
+
+/* FIX T — sparkline window subtitle */
+.dca-hero-spark { display: flex; flex-direction: column; align-items: flex-end; gap: var(--spacing-2); }
+.dca-spark-sub { font-size: 10px; line-height: 1.2; color: var(--content-secondary); }
+
+/* FIX U — dashboard list card scan speed */
+.dca-ai-row .dca-ai-verb { font-size: var(--font-size-sm); }     /* #1 scan target → 14px */
+.dca-minispark-wrap { display: inline-flex; flex-direction: column; align-items: center; gap: var(--spacing-2); }
+.dca-minispark-label { font-size: 10px; line-height: 1; color: var(--content-secondary); }

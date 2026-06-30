@@ -82,7 +82,12 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
         {/* Review status — Pending until the approve/override flow ships (P2.2) */}
         <span className="dca-chip">Pending</span>
         <span className="dca-spacer" />
-        {salesSeries.length > 1 && <MiniSpark data={salesSeries} />}
+        {salesSeries.length > 1 && (
+          <span className="dca-minispark-wrap">
+            <MiniSpark data={salesSeries} />
+            <span className="dca-minispark-label">7d sales</span>
+          </span>
+        )}
         {/* Red Flag pill — live count from dca_red_flag_events (today's slot) */}
         <FlagPill flags={card.flags} />
       </div>
@@ -125,7 +130,7 @@ export default function DecisionCard({ card }: { card: ReviewCard }) {
         ) : (
           <>
             <span className="dca-ai-verb dca-ai-verb--pending">Not analysed</span>
-            <span className="dca-ai-reason t-caption">Run the AI brain for this slot</span>
+            <span className="dca-ai-reason t-caption">Click ⚡ Re-run AI brain below to analyse this campaign</span>
           </>
         )}
       </div>
