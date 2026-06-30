@@ -31,6 +31,36 @@ function internal3d(report: EventReport): {
   };
 }
 
+/**
+ * STEP 3 FIX I — plain-English inventory/urgency line for prompts. Honest about
+ * unknown / unreliable capacity (never fabricates a sell-through %).
+ */
+export function inventoryStr(report: EventReport): string {
+  const inv = report.inventory;
+  if (!inv) return "inventory not loaded";
+  const parts: string[] = [];
+  if (inv.days_to_event != null) {
+    parts.push(
+      inv.days_to_event < 0
+        ? `event ended ${-inv.days_to_event}d ago`
+        : inv.days_to_event === 0
+          ? "event is TODAY"
+          : `${inv.days_to_event} days to event`,
+    );
+  } else parts.push("event date unknown");
+  if (inv.capacity != null && inv.capacity_reliable && inv.sold_pct != null) {
+    parts.push(`${Math.round(inv.sold_pct * 100)}% sold (${inv.sold}/${inv.capacity})`);
+  } else if (inv.capacity != null) {
+    parts.push(`${inv.sold} sold (house capacity ~${inv.capacity} — estimate UNRELIABLE, ignore sell-through %)`);
+  } else {
+    parts.push(`${inv.sold} sold (house capacity UNKNOWN — no urgency signal)`);
+  }
+  parts.push(`recent rate ${r2(inv.sold_per_day_current)} tickets/day`);
+  if (inv.sold_per_day_needed != null) parts.push(`needs ${r2(inv.sold_per_day_needed)}/day to sell out`);
+  parts.push(`pace: ${inv.pace_status}`);
+  return parts.join(", ");
+}
+
 function clusterStr(report: EventReport): string {
   const c = report.clusterBaseline;
   if (!c || !c.matched) return "none available";
@@ -79,7 +109,11 @@ export function segmentsStr(report: EventReport): string {
 function siblingsStr(report: EventReport): string {
   if (!report.affinitySiblings?.length) return "none currently running";
   return report.affinitySiblings
-    .map((s) => `${s.name || s.event_id} (affinity ${r2(s.affinity_norm)}): ROAS ${r2(s.roas)}x, MetaCTR ${s.meta_ctr === null ? "n/a" : pctn(s.meta_ctr) + "%"}, GoogleCTR ${s.google_ctr === null ? "n/a" : pctn(s.google_ctr) + "%"}, sales AED ${r2(s.sales_aed)}`)
+    .map((s) =>
+      s.source === "past_copurchase"
+        ? `${s.name || s.event_id} [PAST co-purchase edition — NOT running, no live metrics]: ${s.shared_users ?? 0} users bought both → usable as a warm-audience SEED (build a Meta lookalike from that past buyer pool)`
+        : `${s.name || s.event_id} (affinity ${r2(s.affinity_norm)}): ROAS ${r2(s.roas)}x, MetaCTR ${s.meta_ctr === null ? "n/a" : pctn(s.meta_ctr) + "%"}, GoogleCTR ${s.google_ctr === null ? "n/a" : pctn(s.google_ctr) + "%"}, sales AED ${r2(s.sales_aed)}`,
+    )
     .join(" | ");
 }
 /** Serialise Lens 5 past-decision items for the prompt (capped + trimmed). */
@@ -114,7 +148,9 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
   internal: {
     window: "last 3 full days vs prior 3 full days",
     rubric:
-      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge the LAST 3 FULL DAYS sales trajectory vs the prior 3 full days (the sales_3d_aed / prior_3d_sales_aed fields — NOT the 7d figure), marketing ticket share, and whether ads are pulling their weight. High score = event-level demand problem (not the ads).",
+      "Lens 1 — Internal sales performance. Is the EVENT delivering? Judge the LAST 3 FULL DAYS sales trajectory vs the prior 3 full days (the sales_3d_aed / prior_3d_sales_aed fields — NOT the 7d figure), marketing ticket share, and whether ads are pulling their weight. " +
+      "ALSO weigh INVENTORY URGENCY (inventory_urgency field): few days to event + low sold% + 'behind' pace = an urgent demand problem (raise the score and say so in plain English, e.g. '8 days out, only 31% sold, selling 18/day but needs 32/day — behind pace'). Near sold-out (pace 'ahead', high sold%) = healthy demand even if ad metrics look soft — do NOT flag a problem. If capacity is UNKNOWN or UNRELIABLE, ignore sell-through and judge on the 3d trajectory alone. " +
+      "High score = event-level demand problem (not the ads).",
     data: (r) => {
       const t = internal3d(r);
       return {
@@ -126,6 +162,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
         marketing_ticket_share_pct: pctn(r.kpis.tickets_sold ? r.ads_performance.tickets / r.kpis.tickets_sold : 0),
         total_roas: r2(r.kpis.total_roas),
         avg_ticket_price_aed: r2(r.kpis.avg_ticket_price),
+        inventory_urgency: inventoryStr(r),
       };
     },
   },
@@ -136,6 +173,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "If affinity siblings are running, note audience-overlap read. If a sibling's WINNING SEGMENT (named ad/audience) outperforms this event's Meta equivalent by >50%, flag it by name as a tactical opportunity to TEST on this campaign (never move budget between events). " +
       "When citing this event's OWN ad sets, ALWAYS use the actual ad_name/campaign string from the data. If a top performer's ROAS exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event reallocation, Sacred Rule #9). " +
       "Each ad set is tagged [audience: …] (lookalike / broad / retargeting / interest / custom / creative_only / unclear). If an AUDIENCE PATTERN emerges (e.g. lookalikes outperforming broad), name it in the diagnosis with the ROAS gap. If a name carries no targeting signal (creative_only/unclear), say so — never invent targeting. " +
+      "If affinity_siblings_running lists a PAST co-purchase edition (marked [PAST co-purchase edition]), you MAY note that the past buyer pool is a warm-audience seed — e.g. 'X users bought the 2024 edition → seed a Meta lookalike from that pool'. These are seeds, NOT currently-running campaigns; never cite live ROAS for them. " +
       "High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
@@ -156,6 +194,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "If a sibling's WINNING Google segment (named campaign/ad_group) is converting materially better than this event's, flag it by name as a pattern to TEST here (within-event only, never cross-event budget moves). " +
       "When citing this event's OWN ad groups, ALWAYS use the actual campaign/ad_group string. If a top performer's conversions/efficiency exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event, Sacred Rule #9). " +
       "Ad groups are tagged [audience: …]; if an audience/intent pattern emerges (e.g. concert-intent beating artist-only), name it. No signal in a name = say so, don't invent. " +
+      "If affinity_siblings_running lists a PAST co-purchase edition (marked [PAST co-purchase edition]), the past buyer pool is a warm-audience seed for a Customer-Match / similar-audience list — note it as a seed, never as a live campaign. " +
       "High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");

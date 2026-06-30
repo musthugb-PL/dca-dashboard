@@ -21,6 +21,7 @@ export async function runBrain(
     includeAffinitySiblings: true,
     includePastDecisions: true,
     includeOwnSegments: true,
+    includeInventory: true,
   });
   const eventName = report.event.name || `Event ${eventId}`;
 

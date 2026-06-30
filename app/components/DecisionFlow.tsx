@@ -123,6 +123,8 @@ export default function DecisionFlow({
   }, [steps, status]);
 
   const manualReviewSteps = steps.filter((s) => isManualReview(s.text));
+  // FIX M: verdict-level flag (weak data) OR a step that explicitly escalates.
+  const manualReview = verdict?.manual_review_required === true || manualReviewSteps.length > 0;
   const outcomeOptions = verdict?.expected_outcome_options?.length ? verdict.expected_outcome_options : DEFAULT_OUTCOMES;
   const expectedOutcome = outcomeSel === "__custom__" ? outcomeCustom.trim() : outcomeSel;
   const canSubmit = !!verdict && expectedOutcome.length > 0 && !submitting && !submitted;
@@ -148,7 +150,7 @@ export default function DecisionFlow({
           dismissed_steps: steps
             .filter((s) => (status[s.id] ?? "pending") === "dismissed")
             .map((s) => ({ step_id: s.id, reason: overrides[s.id]?.reason ?? "Other", notes: overrides[s.id]?.notes ?? "" })),
-          manual_review_required: manualReviewSteps.length > 0,
+          manual_review_required: manualReview,
           expected_outcome: expectedOutcome,
         }),
       });
@@ -196,7 +198,7 @@ export default function DecisionFlow({
               <span title="HIGH = clean data across all 6 lenses. MED = some lenses had data gaps. LOW = thin data, treat as guidance not gospel.">
                 Trust: {(verdict?.confidence ?? "—").toUpperCase()}
               </span>
-              {" · "}Risk: {manualReviewSteps.length} manual review{manualReviewSteps.length === 1 ? "" : "s"}
+              {" · "}Risk: {manualReview ? "manual review" : "none flagged"}
               {" · "}{counts.total} step{counts.total === 1 ? "" : "s"} · {counts.approved} approved · {counts.pending} pending
             </span>
           </div>
@@ -234,11 +236,13 @@ export default function DecisionFlow({
               </div>
             </div>
 
-            {manualReviewSteps.length > 0 && (
+            {manualReview && (
               <div className="dca-manual-review">
-                <span className="dca-manual-review-title t-body-sm-strong">⚠ Manual Review Required</span>
+                <span className="dca-manual-review-title t-body-sm-strong">⚠ Strategist review required</span>
                 <p className="t-caption" style={{ margin: 0 }}>
-                  AI suggests escalating to a strategist before acting. {manualReviewSteps[0].text}
+                  {verdict.manual_review_required
+                    ? "Data signal is too weak to automate confidently — review before acting. See the factors in the context below."
+                    : `AI suggests escalating to a strategist before acting. ${manualReviewSteps[0]?.text ?? ""}`}
                 </p>
               </div>
             )}

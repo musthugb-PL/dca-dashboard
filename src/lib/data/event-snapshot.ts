@@ -6,7 +6,7 @@
  * events.ts so prior/analog windows are computed identically.
  */
 
-import { getEventSales, getChannelPerformance } from "./bq-event";
+import { getEventSales, getChannelPerformance, type EventCapacity } from "./bq-event";
 import { getMetaAttribution } from "./meta";
 import { applyCap, summariseCappedBySource, type ChannelDailyRow } from "./cap";
 import { bq, BQ_PROJECT, BQ_DATASET } from "@/lib/bigquery";
@@ -23,6 +23,8 @@ import type {
   WinningSegment,
   AdSet,
   OwnSegments,
+  Inventory,
+  PaceStatus,
 } from "./events";
 
 const META_SOURCE_RE = /fb|facebook|instagram|meta/i;
@@ -96,6 +98,66 @@ export async function computeSnapshot(
       tickets: adsTickets, revenue: adsRevenue, cpa: safeDiv(totalSpend, adsTickets), roas: safeDiv(adsRevenue, totalSpend),
     },
     channels,
+  };
+}
+
+/**
+ * STEP 3 FIX I — derive inventory/urgency from a capacity snapshot + the show
+ * date + the window's recent sell-through. Pure (no I/O) so it's trivially
+ * testable. `windowSold` is the 7d window tickets (recent run rate); `cap.sold_total`
+ * is all-time. Capacity is an estimate (see EventCapacity docs) — when it's
+ * missing or smaller than total sold, pace falls back to "unknown" rather than
+ * inventing a denominator.
+ */
+export function assembleInventory(
+  cap: EventCapacity,
+  showDateIso: string | null,
+  windowSold: number,
+  windowDays: number,
+): Inventory {
+  const capacity = cap.capacity;
+  const sold = cap.sold_total ?? 0;
+
+  const todayMs = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime();
+  const dateRef = showDateIso || cap.start_datetime;
+  const days_to_event =
+    dateRef != null
+      ? Math.round((new Date(dateRef.slice(0, 10) + "T00:00:00Z").getTime() - todayMs) / 86_400_000)
+      : null;
+
+  // Capacity is unreliable as a denominator when total sold already exceeds it
+  // (multi-category / resale). Allow a 2% slack for rounding.
+  const capacity_reliable = capacity != null && sold <= capacity * 1.02;
+  const remaining = capacity != null ? Math.max(0, capacity - sold) : null;
+  const sold_pct = capacity != null && capacity > 0 ? sold / capacity : null;
+
+  const sold_per_day_current = windowDays > 0 ? windowSold / windowDays : 0;
+  const sold_per_day_needed =
+    capacity_reliable && remaining != null && days_to_event != null && days_to_event > 0
+      ? remaining / days_to_event
+      : null;
+
+  let pace_status: PaceStatus = "unknown";
+  if (sold_pct != null && capacity_reliable && sold_pct >= 0.9) {
+    pace_status = "ahead"; // near / at capacity — pace is moot
+  } else if (sold_per_day_needed != null) {
+    if (sold_per_day_needed <= 0) pace_status = "ahead";
+    else {
+      const ratio = sold_per_day_current / sold_per_day_needed;
+      pace_status = ratio >= 1.05 ? "ahead" : ratio >= 0.85 ? "on_track" : "behind";
+    }
+  }
+
+  return {
+    capacity,
+    sold,
+    remaining,
+    sold_pct,
+    capacity_reliable,
+    days_to_event,
+    sold_per_day_current,
+    sold_per_day_needed,
+    pace_status,
   };
 }
 
@@ -524,7 +586,8 @@ export async function getAffinitySiblings(
     .order("affinity_norm", { ascending: false })
     .limit(limit * 4);
   const cand = (affData ?? []) as { id_event_2: number; affinity_norm: number }[];
-  if (!cand.length) return [];
+  // No affinity graph at all → straight to the co-purchase fallback (FIX N).
+  if (!cand.length) return getCopurchaseFallback(eventId, limit);
 
   // Keep only siblings that are currently running in the ledger; carry their names.
   const candIds = cand.map((c) => String(c.id_event_2));
@@ -563,10 +626,59 @@ export async function getAffinitySiblings(
         meta_ctr: meta ? meta.ctr : null,
         google_ctr: google ? google.ctr : null,
         winning_segments,
+        source: "running",
       });
     } catch {
       /* skip siblings that error in the window */
     }
   }
+
+  // STEP 3 FIX N — fallback for events with no RUNNING affinity siblings (new
+  // events, or whose graph aged out). event_affinity_trough_users is event-to-
+  // event co-purchase with the neighbour name inline; neighbours are mostly PAST
+  // editions, so we surface them as warm-audience seeds (no live metrics).
+  if (out.length === 0) {
+    out.push(...(await getCopurchaseFallback(eventId, limit)));
+  }
   return out;
+}
+
+/**
+ * STEP 3 FIX N — co-purchase neighbours from BQ event_affinity_trough_users,
+ * used ONLY when dca_v_affinity yields no running siblings. These are mostly
+ * past editions of the same / related acts (warm-audience seeds), so live
+ * metrics are zeroed and `affinity_norm` carries a 0-1 normalised shared-user
+ * score for ordering. Marked source "past_copurchase" so the UI/prompts label
+ * them honestly and never imply a currently-running campaign.
+ */
+async function getCopurchaseFallback(eventId: number, limit: number): Promise<AffinitySibling[]> {
+  try {
+    const rows = await bq.query<Record<string, unknown>>(
+      `SELECT id_event_2, ANY_VALUE(event_name_2) AS name, MAX(users_count) AS shared
+       FROM \`${BQ_PROJECT}.${BQ_DATASET}.event_affinity_trough_users\`
+       WHERE id_event = @eventId AND id_event_2 != @eventId
+       GROUP BY id_event_2
+       ORDER BY shared DESC
+       LIMIT @lim`,
+      { eventId, lim: limit },
+    );
+    if (!rows.length) return [];
+    const maxShared = Math.max(...rows.map((r) => Number(r.shared ?? 0)), 1);
+    return rows.map((r) => ({
+      event_id: String(r.id_event_2),
+      name: String(r.name ?? ""),
+      affinity_norm: Number(r.shared ?? 0) / maxShared,
+      sales_aed: 0,
+      spend_aed: 0,
+      tickets: 0,
+      roas: 0,
+      meta_ctr: null,
+      google_ctr: null,
+      winning_segments: [],
+      source: "past_copurchase" as const,
+      shared_users: Number(r.shared ?? 0),
+    }));
+  } catch {
+    return []; // best-effort — never blocks the report
+  }
 }

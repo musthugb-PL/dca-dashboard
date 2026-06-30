@@ -7,7 +7,7 @@
 import type { EventReport } from "@/src/lib/data/events";
 import { chatJSON } from "@/src/lib/openrouter";
 import { MASTER_SYSTEM } from "./master-prompt";
-import { segmentsStr, ownSegmentsStr } from "./lenses";
+import { segmentsStr, ownSegmentsStr, inventoryStr } from "./lenses";
 import type { LensOutput, Verdict } from "./types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -48,8 +48,31 @@ function benchmarksStr(report: EventReport): string {
     d ? `WoW: sales ${pct(d.total_sales.pct)}, tickets ${pct(d.tickets.pct)}, ROAS ${pct(d.total_roas.pct)}` : "WoW n/a",
     `event status: ${report.event.status || "unknown"}`,
     `avg ticket price AED ${r2(price)} (10% = AED ${r2(price * 0.1)})`,
+    `INVENTORY: ${inventoryStr(report)}`,
   ];
   return parts.join(" | ");
+}
+
+/**
+ * STEP 3 FIX M — deterministic data-quality weakness. True when too many signal
+ * sources are missing to confidently automate an action: no usable cluster
+ * benchmark AND no GA4 funnel AND no analogs/siblings. The model is also asked
+ * to flag this, but we OR in this code-side check so a weak verdict can never be
+ * silently auto-actioned.
+ */
+function dataSignalWeak(report: EventReport, lenses: LensOutput[]): { weak: boolean; factors: string[] } {
+  const factors: string[] = [];
+  const cb = report.clusterBaseline;
+  if (!cb || !cb.matched || (cb.sample_size ?? 0) < 20) factors.push("no reliable cluster benchmark (under 20 similar events)");
+  const ga4 = lenses.find((l) => l.lens === "ga4");
+  if (!ga4 || ga4.lens_score == null) factors.push("GA4 funnel data missing");
+  const analogs = report.analogs?.length ?? 0;
+  const sibs = report.affinitySiblings?.length ?? 0;
+  if (analogs === 0 && sibs === 0) factors.push("no analog or affinity-sibling reference events");
+  const lowTrust = lenses.filter((l) => l.confidence === "low").length;
+  if (lowTrust >= 4) factors.push(`${lowTrust} of 6 lenses are low-trust`);
+  // Weak only when MULTIPLE independent sources are missing (>=2 of the above).
+  return { weak: factors.length >= 2, factors };
 }
 
 const VERDICT_SCHEMA =
@@ -58,6 +81,7 @@ const VERDICT_SCHEMA =
   `"tactical_steps": [{"id": <int>, "text": <atomic action>, "channel": "meta"|"google"|"internal"|"cross"}], ` +
   `"strategic_context": <one paragraph>, "expected_outcome_template": <one editable sentence>, ` +
   `"expected_outcome_options": [<3-5 short, MEASURABLE predictions the approver could pick, each with a number+timeframe, e.g. "Meta CPA drops below AED 50 within 5 days">], ` +
+  `"manual_review_required": <true|false — true ONLY when data signal is too weak to confidently recommend an action>, ` +
   `"confidence": "high"|"medium"|"low"}. Lens keys: internal, meta, google, ga4, last_week, market. ` +
   `Output 1-4 tactical_steps (HOLD: 0-1). Keep each step to <=2 sentences. ` +
   `CRITICAL — emit STRICTLY VALID JSON parseable by JSON.parse: escape every internal double-quote as \\", ` +
@@ -94,10 +118,18 @@ export async function synthesize(
     `• KILL — event status is "ended", OR zero conversions on 7+ days of real spend (>1000 AED). Give cleanup steps.\n` +
     `• REMARKET — traffic exists (GA4 / Meta conversions / Google clicks) BUT conversion rate < 1% (browsing, not buying). Give retarget-pool details.\n` +
     `strategic_context MUST OPEN with the triggering rule, e.g. "HOLD triggered: ROAS 19x ≥ cluster 14x, no WoW decline >15%, no red lens."\n` +
+    // ── inventory / urgency weighting (FIX I) ───────────────────────
+    `INVENTORY URGENCY (use the INVENTORY field on the BENCHMARKS line; if capacity is UNKNOWN or UNRELIABLE, IGNORE these rules and use the standard ROAS logic above — never invent a sell-through):\n` +
+    `• strong ROAS + sold ≥ 90% of capacity → HOLD (near sold-out; do NOT scale into a near-full house — extra spend is wasted).\n` +
+    `• strong ROAS + sold < 30% + ≤ 7 days to event → SCALE URGENTLY (or REMARKET if traffic exists but isn't converting) — name the daily/lifetime budget lift and the pace gap.\n` +
+    `• weak ROAS + sold < 30% + ≤ 7 days to event → REMARKET URGENT — the show is close and under-sold; lean on warm/retargeting pools.\n` +
+    `• strong ROAS + sold < 30% + > 30 days to event → SCALE NORMALLY (early pre-sale; build awareness, no panic).\n` +
+    `• 'behind' pace generally argues for SCALE/REMARKET; 'ahead' pace argues for HOLD. Always cite the pace numbers ("selling 18/day, needs 32/day") in strategic_context when capacity is reliable.\n` +
     `Lens scores are anchored to the CLUSTER MEDIAN. Do NOT escalate to PAUSE/KILL because a lens looks weak vs an analog outlier — only act on metrics that are genuinely worse than the cluster median. A lens marked NO DATA (e.g. GA4 with no funnel rows) is MISSING information — never treat it as a green/healthy contributing factor.\n\n` +
     // ── tactical step format ─────────────────────────────────────────
     `primary_lens = the single highest-signal red lens (or null if all green). contributing_lenses = lenses scoring >30 that aren't primary.\n` +
-    `EVERY tactical_step MUST contain ALL of: (1) the EXACT name from the data (ad-set/audience/campaign/ad-group string — never "narrow audience" without naming which); (2) a SPECIFIC budget in AED + duration in days; (3) a SPECIFIC success metric to check at the end; (4) WHO executes — "Khaled (manual)" or an auto-pause threshold or "Manual Review Required"; (5) the REASON beyond the metric gap (WHY this action, not just "underperforms").\n` +
+    `EVERY tactical_step MUST contain ALL FIVE of: (1) the EXACT name from the data (ad-set/audience/campaign/ad-group string from the OWN-ad-sets or sibling-segment lists — never "narrow audience" or "the broad ad set" without naming which); (2) a SPECIFIC budget in AED + duration in days; (3) a SPECIFIC success metric to check at the end; (4) WHO executes — "Khaled (manual)" or an auto-pause threshold or "Manual Review Required"; (5) the REASON beyond the metric gap (WHY this action, not just "underperforms").\n` +
+    `If you CANNOT produce all five for a step (e.g. no real ad-set name is available), OMIT that step entirely — do NOT pad with a vague entry. Fewer, fully-specified steps beat more vague ones. It is valid to return zero steps.\n` +
     `GOOD example: "Pause Meta ad set 'concerts-X-Arabic' for 3 days. Reason: spend AED 375 with 0 tracked conversions — budget burning on a non-converting audience while 'LALs-X-Arabic' converts at AED 28 CPA. Action: Khaled (manual). Success metric: if blended Meta CPA drops below AED 30 within 3 days, retire it; reallocate its budget to 'LALs-X-Arabic' inside the same campaign."\n` +
     `BAD example (DO NOT EMIT): "Kill ad set 'concerts-X-Arabic' (ROAS 1.9x) — underperforms top by 37x." (no WHY-kill, no test path, no success metric, no actor.)\n\n` +
     // ── constraints ──────────────────────────────────────────────────
@@ -107,10 +139,14 @@ export async function synthesize(
     `If a winning sibling segment is listed AND this event underperforms on that channel, you MAY add ONE "test [Sibling]'s winning <named segment> — allocate AED X for Y days" step.\n` +
     `CRITICAL (Sacred Rule #11): if there is NO real within-event efficiency gap or opportunity, do NOT invent one. Output a single tactical step "No within-event optimization needed — current allocation is performing." Cite ACTUAL names + ACTUAL numbers only.\n\n` +
     `strategic_context = one paragraph (opening with the triggering rule) weaving channel / pricing / commercial angles, grounded in cited numbers. ` +
-    `For HOLD and SCALE, OPEN with an affirming sentence about what's working ("This campaign is performing — …") before any nuance; a healthy verdict should feel earned, not boring. ` +
+    // ── HOLD brevity (FIX K) ─────────────────────────────────────────
+    `IF recommended_action = HOLD: strategic_context is a HARD CAP of 2 sentences — write exactly 1-2 short factual sentences and STOP, even if nuance is lost (no third sentence, no motivational filler, no listing every ad set). Example (this length, not longer): "Sales pacing +7% week-over-week with ROAS above the cluster average. No within-event efficiency gap or red lens." tactical_steps = [] OR a single step "No action needed — continue monitoring". expected_outcome_options must focus on MONITORING (e.g. "ROAS stays above the cluster average over the next 7 days", "No drop in CTR or CPA", "Sell-through stays on pace"). ` +
+    // ── manual review (FIX M) ────────────────────────────────────────
+    `SET manual_review_required = true ONLY when the data signal is genuinely too weak to confidently automate (e.g. GA4 missing AND analogs aged out AND cluster under 20 events). When true: keep recommended_action to a conservative baseline (OPTIMIZE, or HOLD if nothing is clearly wrong), and strategic_context MUST list the specific weakness factors, e.g. "Data signal weak — recommend strategist review before automating. Factors: GA4 funnel missing, no analog events, cluster under 20 events." Do NOT emit aggressive KILL/SCALE steps when the signal is weak. ` +
+    `For HOLD and SCALE (when NOT manual-review), OPEN with an affirming sentence about what's working ("This campaign is performing — …") before any nuance; a healthy verdict should feel earned, not boring. ` +
     `Write PLAIN ENGLISH for a marketer — NEVER use "p50", "percentile", or "n=" notation anywhere; say "the average across 111 similar events" or "10x above similar events" instead. ` +
     `expected_outcome_template = one editable sentence the approver completes. ` +
-    `expected_outcome_options = 3-5 outcomes SPECIFIC to THIS verdict — reference the actual problem from the diagnoses, use concrete numbers (CPA below AED X, ROAS reaches Yx, CTR recovers to Z%), map to the tactical steps' success metrics, and include ONE "monitor only — no action needed" style option. Plain English, no jargon.\n\n` +
+    `expected_outcome_options = 3-5 outcomes SPECIFIC to THIS verdict — each MUST cite a REAL asset (the actual ad-set / audience / campaign name from the data) and concrete numbers, e.g. "CPA on 'Arabic-expats-interests' ad set drops below AED 12 within 5 days" or "Remarketing audience converts 30%+ within 7 days" — NEVER generic ("Meta CPA improves", "better targeting yields results"). Map them to the tactical steps' success metrics, and include ONE "monitor only — no action needed" style option. If you cannot produce 3+ asset-specific options, output the 1-2 you CAN and add a final "Other (specify)" option. Plain English, no jargon.\n\n` +
     VERDICT_SCHEMA;
 
   const { data } = await chatJSON<Verdict>({
@@ -128,6 +164,18 @@ export async function synthesize(
     action = "PAUSE";
   }
 
+  // FIX M: OR the model's manual_review flag with a deterministic data-quality
+  // check so a thin-data verdict can never be silently auto-actioned. Append the
+  // concrete weakness factors to the context if the model didn't already flag it.
+  const weak = dataSignalWeak(report, lenses);
+  const manual_review_required = data.manual_review_required === true || weak.weak;
+  let strategic_context = String(data.strategic_context ?? "");
+  if (weak.weak && data.manual_review_required !== true) {
+    strategic_context +=
+      (strategic_context ? " " : "") +
+      `Data signal weak — recommend strategist review before automating. Factors: ${weak.factors.join("; ")}.`;
+  }
+
   // Light coercion so the UI never breaks on a malformed field.
   return {
     primary_lens: data.primary_lens ?? null,
@@ -136,11 +184,12 @@ export async function synthesize(
     tactical_steps: Array.isArray(data.tactical_steps)
       ? data.tactical_steps.slice(0, 5).map((s, i) => ({ id: s.id ?? i + 1, text: String(s.text ?? ""), channel: String(s.channel ?? "cross") }))
       : [],
-    strategic_context: String(data.strategic_context ?? ""),
+    strategic_context,
     expected_outcome_template: String(data.expected_outcome_template ?? ""),
     expected_outcome_options: Array.isArray(data.expected_outcome_options)
       ? data.expected_outcome_options.slice(0, 5).map((s) => String(s))
       : undefined,
     confidence: data.confidence ?? "low",
+    manual_review_required,
   };
 }

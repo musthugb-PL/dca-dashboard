@@ -30,6 +30,10 @@ export type Verdict = {
    *  Optional — absent on analyses persisted before Phase B; UI falls back. */
   expected_outcome_options?: string[];
   confidence: Confidence;
+  /** STEP 3 FIX M — data signal too weak to confidently automate an action;
+   *  UI shows a "Strategist review required" banner. Optional — absent on
+   *  analyses persisted before STEP 3 (UI falls back to step-text detection). */
+  manual_review_required?: boolean;
 };
 
 export type BrainAnalysis = {

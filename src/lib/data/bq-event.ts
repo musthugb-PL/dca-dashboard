@@ -348,3 +348,57 @@ export async function getFunnel(
     notes: FUNNEL_NOTE,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Inventory / capacity (STEP 3 FIX I)
+// ---------------------------------------------------------------------------
+//
+// Capacity lives in GA4_marketing_share_by_channels (per-event, one row per
+// channel/date — we take the MAX across the latest snapshot). We deliberately
+// do NOT use DB_total_tickets_by_event_ORG_edition: it's a view that joins
+// rds.currency, which our read-only service account can't query (Access Denied).
+//
+// Column caveat: `overall_capacity` is the headline house capacity; it can be
+// LOWER than `public_tickets_available_on_site` for multi-category / resale
+// events, so sold_total can exceed it. Callers must treat capacity as an
+// ESTIMATE and guard against sold_pct > 100% (flag capacity unreliable rather
+// than fabricate a denominator).
+
+export type EventCapacity = {
+  capacity: number | null; // overall_capacity (house capacity estimate)
+  sold_total: number | null; // ticket_sold_count — ALL-TIME sold, not the window
+  avail_on_site: number | null; // public_tickets_available_on_site (currently on sale)
+  start_datetime: string | null; // event_start_datetime (ISO)
+};
+
+/** Latest capacity/sold snapshot for an event from GA4_marketing_share_by_channels. */
+export async function getEventCapacity(eventId: number): Promise<EventCapacity> {
+  try {
+    const rows = await bq.query<Record<string, unknown>>(
+      `SELECT MAX(overall_capacity)                  AS cap,
+              MAX(ticket_sold_count)                 AS sold,
+              MAX(public_tickets_available_on_site)  AS avail,
+              MAX(event_start_datetime)              AS start_dt
+       FROM ${T("GA4_marketing_share_by_channels")}
+       WHERE event_id = @eventId`,
+      { eventId },
+    );
+    const r = rows[0];
+    if (!r) return { capacity: null, sold_total: null, avail_on_site: null, start_datetime: null };
+    const cap = r.cap == null ? null : num(r.cap);
+    const sold = r.sold == null ? null : num(r.sold);
+    const avail = r.avail == null ? null : num(r.avail);
+    const sd = r.start_dt as { value?: string } | string | null | undefined;
+    const start = sd == null ? null : typeof sd === "string" ? sd : sd.value ?? null;
+    return {
+      capacity: cap && cap > 0 ? cap : null,
+      sold_total: sold,
+      avail_on_site: avail,
+      start_datetime: start,
+    };
+  } catch {
+    // No row / table access issue → unknown capacity (callers fall back to
+    // non-urgency logic). Best-effort, never throws.
+    return { capacity: null, sold_total: null, avail_on_site: null, start_datetime: null };
+  }
+}

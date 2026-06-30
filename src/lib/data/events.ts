@@ -25,6 +25,7 @@ import {
   getEventSales,
   getChannelPerformance,
   getFunnel,
+  getEventCapacity,
   type Funnel,
   type DailySales,
 } from "./bq-event";
@@ -39,6 +40,7 @@ import {
   getAnalogs,
   getAffinitySiblings,
   getOwnSegments,
+  assembleInventory,
 } from "./event-snapshot";
 import { getPastDecisionsContext } from "./lens5";
 
@@ -132,6 +134,7 @@ export type EventReport = {
   affinitySiblings?: AffinitySibling[]; // ref priority #3 — running co-purchase siblings
   pastDecisions?: PastDecisions; // Lens 5 — prior decisions/notes (multi-source + fuzzy name)
   ownSegments?: OwnSegments; // Fix 4 — this event's own ad-set top/bottom performers
+  inventory?: Inventory; // STEP 3 FIX I — capacity / sold / pace / days-to-event urgency
 };
 
 export type ReportOptions = {
@@ -141,6 +144,7 @@ export type ReportOptions = {
   includeAffinitySiblings?: boolean; // ref priority #3 — running affinity siblings + metrics
   includePastDecisions?: boolean; // Lens 5 — multi-source past-decision context
   includeOwnSegments?: boolean; // Fix 4 — this event's own ad-set granularity
+  includeInventory?: boolean; // STEP 3 FIX I — capacity / sold / pace urgency
 };
 
 export type KpiBlock = EventReport["kpis"];
@@ -252,6 +256,12 @@ export type AffinitySibling = {
   meta_ctr: number | null;
   google_ctr: number | null;
   winning_segments: WinningSegment[]; // top 2-3 Meta + Google segments (last 14d)
+  /** STEP 3 FIX N — provenance:
+   *   "running"        → dca_v_affinity, currently-running sibling (has live metrics)
+   *   "past_copurchase"→ event_affinity_trough_users fallback (mostly PAST editions;
+   *                       no live metrics — used as a warm-audience seed) */
+  source: "running" | "past_copurchase";
+  shared_users?: number | null; // past_copurchase only: # users who bought both
 };
 
 /** One past-decision/optimisation note matched to this event (Lens 5). */
@@ -270,6 +280,28 @@ export type PastDecisions = {
   count: number;
   /** True when items come from similar events (this event has no own history). */
   viaAnalogs?: boolean;
+};
+
+export type PaceStatus = "ahead" | "on_track" | "behind" | "unknown";
+
+/**
+ * Inventory & urgency (STEP 3 FIX I). Capacity is an ESTIMATE from
+ * GA4_marketing_share_by_channels.overall_capacity — it can be lower than
+ * tickets actually sold (multi-category / resale), so `capacity_reliable` flags
+ * when the denominator can't be trusted and pace is left "unknown". When there
+ * is no capacity row at all, capacity stays null and pace is "unknown" → callers
+ * fall back to non-urgency logic (Sacred Rule #11: never fabricate a number).
+ */
+export type Inventory = {
+  capacity: number | null; // house capacity (estimate)
+  sold: number; // all-time tickets sold (NOT the 7d window)
+  remaining: number | null; // capacity - sold, clamped >= 0
+  sold_pct: number | null; // sold / capacity (may exceed 100% → see capacity_reliable)
+  capacity_reliable: boolean; // false when sold > capacity → denominator suspect
+  days_to_event: number | null; // show date - today (negative = passed)
+  sold_per_day_current: number; // window tickets / window days (recent run rate)
+  sold_per_day_needed: number | null; // remaining / days_to_event (null if capacity/date unknown)
+  pace_status: PaceStatus;
 };
 
 // ---------------------------------------------------------------------------
@@ -473,6 +505,11 @@ export async function getEventReport(
   }
   if (opts.includeOwnSegments) {
     report.ownSegments = await getOwnSegments(eventId, dateFrom, dateTo);
+  }
+  if (opts.includeInventory) {
+    const cap = await getEventCapacity(eventId);
+    const windowDays = Math.max(1, Math.round((new Date(dateTo + "T00:00:00Z").getTime() - new Date(dateFrom + "T00:00:00Z").getTime()) / 86_400_000) + 1);
+    report.inventory = assembleInventory(cap, eventMeta.date, sales.tickets_sold, windowDays);
   }
 
   return report;

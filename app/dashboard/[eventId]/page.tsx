@@ -6,7 +6,7 @@ import { aed, intFmt, roasFmt, pctFmt } from "@/src/lib/format";
 import { getLatestBrainAnalysis } from "@/src/lib/ai-brain/persist";
 import type { BrainAnalysis, LensName, LensOutput } from "@/src/lib/ai-brain/types";
 import { getPastDecisionsContext, getAnalogDecisions } from "@/src/lib/data/lens5";
-import type { PastDecisions, PastDecisionItem, AnalogEvent, AffinitySibling } from "@/src/lib/data/events";
+import type { PastDecisions, PastDecisionItem, AnalogEvent, AffinitySibling, Inventory } from "@/src/lib/data/events";
 import DeltaPill from "@/app/components/DeltaPill";
 import DecisionFlow from "@/app/components/DecisionFlow";
 
@@ -45,6 +45,7 @@ export default async function EventReportPage({ params }: { params: { eventId: s
       includeCluster: true,
       includeAnalogs: true,
       includeAffinitySiblings: true, // Fix H — "Similar event patterns" section
+      includeInventory: true, // STEP 3 FIX I — capacity / sold / pace urgency
     });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -258,6 +259,9 @@ export default async function EventReportPage({ params }: { params: { eventId: s
               <KpiTile label="Tickets" value={intFmt(report.kpis.tickets_sold)} d={report.deltas?.tickets.pct} goodUp />
             </div>
           </section>
+
+          {/* b1.5 — inventory & urgency (STEP 3 FIX I) */}
+          <InventoryStrip inv={report.inventory} />
 
           {/* b2. Past decisions timeline */}
           <PastDecisionsSection pd={pastDecisions} />
@@ -484,6 +488,66 @@ function PastDecisionsSection({ pd }: { pd: PastDecisions }) {
 }
 
 /** Fix H — cross-event reference (analogs + affinity siblings). NOT this event's decisions. */
+const PACE_META: Record<Inventory["pace_status"], { label: string; cls: "success" | "alert" | null }> = {
+  ahead: { label: "Ahead of pace", cls: "success" },
+  on_track: { label: "On track", cls: "success" },
+  behind: { label: "Behind pace", cls: "alert" },
+  unknown: { label: "Pace unknown", cls: null },
+};
+
+/** STEP 3 FIX I — inventory & urgency strip. Honest when capacity is unknown. */
+function InventoryStrip({ inv }: { inv?: Inventory }) {
+  if (!inv) return null;
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const pace = PACE_META[inv.pace_status];
+  const daysLabel =
+    inv.days_to_event == null
+      ? "Date unknown"
+      : inv.days_to_event < 0
+        ? `Ended ${-inv.days_to_event}d ago`
+        : inv.days_to_event === 0
+          ? "Today"
+          : `${inv.days_to_event} days out`;
+  const soldLabel =
+    inv.capacity != null && inv.capacity_reliable && inv.sold_pct != null
+      ? `${Math.round(inv.sold_pct * 100)}% sold`
+      : `${intFmt(inv.sold)} sold`;
+  const capLabel =
+    inv.capacity == null
+      ? "House capacity unknown"
+      : inv.capacity_reliable
+        ? `${intFmt(inv.sold)} / ${intFmt(inv.capacity)} · ${intFmt(inv.remaining ?? 0)} left`
+        : `Capacity ~${intFmt(inv.capacity)} (estimate unreliable)`;
+
+  return (
+    <section className="pl-card pl-card-elevated pl-card-padded dca-inv" style={{ marginTop: "var(--spacing-12)" }}>
+      <div className="dca-inv-head">
+        <h2 className="t-title-sm">Inventory &amp; urgency</h2>
+        {pace.cls ? (
+          <span className={`pl-status-tag pl-status-tag--${pace.cls}`}>{pace.label}</span>
+        ) : (
+          <span className="dca-chip">{pace.label}</span>
+        )}
+      </div>
+      <div className="dca-report-grid">
+        <Tile label="Time to event" value={daysLabel} />
+        <Tile label="Sell-through" value={soldLabel} />
+        <Tile label="Tickets" value={capLabel} />
+        <Tile label="Recent rate" value={`${round(inv.sold_per_day_current)}/day`} />
+        <Tile
+          label="Needed to sell out"
+          value={inv.sold_per_day_needed == null ? "n/a" : `${round(inv.sold_per_day_needed)}/day`}
+        />
+      </div>
+      {inv.capacity == null && (
+        <p className="dca-sim-sub t-caption" style={{ marginTop: "var(--spacing-8)" }}>
+          No capacity row for this event — urgency is judged on sales trajectory only, not sell-through.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function SimilarEventPatterns({
   analogs, siblings, analogDecisions,
 }: {
@@ -519,6 +583,19 @@ function SimilarEventPatterns({
           </div>
         ))}
         {sibs.map((s) => {
+          // FIX N — past co-purchase fallback (no live metrics; warm-audience seed).
+          if (s.source === "past_copurchase") {
+            return (
+              <div key={`s-${s.event_id}`} className="dca-sim-card">
+                <span className="dca-sim-tag dca-sim-tag--past">Past co-purchase audience</span>
+                <span className="dca-sim-name t-body-sm-strong">{s.name || `Event ${s.event_id}`}</span>
+                <span className="t-caption">
+                  {s.shared_users != null ? `${intFmt(s.shared_users)} shared buyers` : "Past edition"} — not currently running.
+                </span>
+                <span className="dca-sim-rec t-caption">Recommended: seed a Meta lookalike / Google Customer-Match list from this past buyer pool (warm audience).</span>
+              </div>
+            );
+          }
           const w = (s.winning_segments ?? [])[0];
           return (
             <div key={`s-${s.event_id}`} className="dca-sim-card">
