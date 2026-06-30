@@ -54,24 +54,25 @@ function benchmarksStr(report: EventReport): string {
 }
 
 /**
- * STEP 3 FIX M — deterministic data-quality weakness. True when too many signal
- * sources are missing to confidently automate an action: no usable cluster
- * benchmark AND no GA4 funnel AND no analogs/siblings. The model is also asked
- * to flag this, but we OR in this code-side check so a weak verdict can never be
- * silently auto-actioned.
+ * STEP 3 FIX M / STEP 4 FIX P — deterministic data-quality weakness. True when
+ * >=2 EVENT-SPECIFIC signal sources are missing. GA4 funnel is deliberately
+ * EXCLUDED: it is NULL platform-wide (a known upstream join gap), so it's a
+ * constant — counting it flagged ~56% of events and diluted the signal. The
+ * model is also asked to flag weakness; we OR in this check so a thin verdict
+ * can never be silently auto-actioned.
  */
 function dataSignalWeak(report: EventReport, lenses: LensOutput[]): { weak: boolean; factors: string[] } {
   const factors: string[] = [];
   const cb = report.clusterBaseline;
   if (!cb || !cb.matched || (cb.sample_size ?? 0) < 20) factors.push("no reliable cluster benchmark (under 20 similar events)");
-  const ga4 = lenses.find((l) => l.lens === "ga4");
-  if (!ga4 || ga4.lens_score == null) factors.push("GA4 funnel data missing");
   const analogs = report.analogs?.length ?? 0;
   const sibs = report.affinitySiblings?.length ?? 0;
-  if (analogs === 0 && sibs === 0) factors.push("no analog or affinity-sibling reference events");
-  const lowTrust = lenses.filter((l) => l.confidence === "low").length;
-  if (lowTrust >= 4) factors.push(`${lowTrust} of 6 lenses are low-trust`);
-  // Weak only when MULTIPLE independent sources are missing (>=2 of the above).
+  if (analogs === 0 && sibs === 0) factors.push("no analog or affinity reference events");
+  // Count low-trust lenses EXCLUDING GA4 (its low trust is a constant gap).
+  const lowTrustNonGa4 = lenses.filter((l) => l.lens !== "ga4" && l.confidence === "low").length;
+  if (lowTrustNonGa4 >= 4) factors.push(`${lowTrustNonGa4} of 5 non-GA4 lenses are low-trust`);
+  if (!report.deltas) factors.push("no week-over-week comparison available");
+  // Weak only when MULTIPLE independent, event-specific sources are missing.
   return { weak: factors.length >= 2, factors };
 }
 
@@ -136,13 +137,16 @@ export async function synthesize(
     `META BUDGET CONSTRAINT: Meta runs on a LIFETIME budget at CAMPAIGN level. Do NOT recommend "daily budget" changes for Meta — instead recommend "adjust the event campaign's lifetime budget" or "manually reallocate budget to the winning ad set INSIDE the existing campaign". Google ad-group budget changes are fine to recommend normally.\n` +
     `Budget moves are WITHIN this event only (Meta↔Google, ad set↔ad set) — NEVER across events; if within-event moves can't fix it, escalate to a human.\n` +
     `Own ad sets are tagged [audience: …]. If a real audience PATTERN is visible (lookalikes beating broad, retargeting beating interest), name it with the gap. If tags are creative_only/unclear, do not claim a pattern.\n` +
-    `If a winning sibling segment is listed AND this event underperforms on that channel, you MAY add ONE "test [Sibling]'s winning <named segment> — allocate AED X for Y days" step.\n` +
+    `AFFINITY RECOMMENDATIONS must be SPECIFIC — the generic phrase "test similar audiences" (or any unnamed variant) is BANNED.\n` +
+    `• If a RUNNING sibling has a winning named segment AND this event underperforms on that channel, you MAY add ONE step naming the sibling event + its winning ad-set/audience, e.g. "Test 'This is Michael's winning Meta ad set 'video-reel-LAL' on this campaign — allocate AED 200/day for 5 days on a new ad set, success: CPA below AED 25 within 5 days, action: Khaled (manual)".\n` +
+    `• If PAST co-purchase neighbours are listed (marked [PAST co-purchase edition]), PREFER them — cite the exact neighbour event NAME + id + shared-buyer COUNT and frame it as a lookalike SEED, e.g. "Build a Meta lookalike seeded from the 316 buyers of 'Angham at Coca-Cola Arena 2024' (97499) — confirmed co-purchase overlap. Allocate AED 200/day for 5 days on a new ad set 'LAL-from-97499-buyers'. Success: CPA below AED 25 within 5 days. Action: Khaled (manual)".\n` +
+    `• If there is NO affinity data at all (no running siblings AND no co-purchase neighbours), do NOT fabricate one — omit any affinity step entirely (state "No affinity data available for this event" only if directly relevant). Never cite a count or event name that is not in the data above.\n` +
     `CRITICAL (Sacred Rule #11): if there is NO real within-event efficiency gap or opportunity, do NOT invent one. Output a single tactical step "No within-event optimization needed — current allocation is performing." Cite ACTUAL names + ACTUAL numbers only.\n\n` +
     `strategic_context = one paragraph (opening with the triggering rule) weaving channel / pricing / commercial angles, grounded in cited numbers. ` +
     // ── HOLD brevity (FIX K) ─────────────────────────────────────────
     `IF recommended_action = HOLD: strategic_context is a HARD CAP of 2 sentences — write exactly 1-2 short factual sentences and STOP, even if nuance is lost (no third sentence, no motivational filler, no listing every ad set). Example (this length, not longer): "Sales pacing +7% week-over-week with ROAS above the cluster average. No within-event efficiency gap or red lens." tactical_steps = [] OR a single step "No action needed — continue monitoring". expected_outcome_options must focus on MONITORING (e.g. "ROAS stays above the cluster average over the next 7 days", "No drop in CTR or CPA", "Sell-through stays on pace"). ` +
     // ── manual review (FIX M) ────────────────────────────────────────
-    `SET manual_review_required = true ONLY when the data signal is genuinely too weak to confidently automate (e.g. GA4 missing AND analogs aged out AND cluster under 20 events). When true: keep recommended_action to a conservative baseline (OPTIMIZE, or HOLD if nothing is clearly wrong), and strategic_context MUST list the specific weakness factors, e.g. "Data signal weak — recommend strategist review before automating. Factors: GA4 funnel missing, no analog events, cluster under 20 events." Do NOT emit aggressive KILL/SCALE steps when the signal is weak. ` +
+    `SET manual_review_required = true ONLY when the data signal is genuinely too weak to confidently automate — i.e. TWO OR MORE of: no cluster benchmark (or under 20 similar events), no analog AND no affinity reference events, most lenses low-trust, or no week-over-week comparison. Do NOT base this on GA4 funnel being missing — that is a known platform-wide data gap, not an event-specific weakness. When true: keep recommended_action to a conservative baseline (OPTIMIZE, or HOLD if nothing is clearly wrong), list the specific weakness factors in strategic_context, and do NOT emit aggressive KILL/SCALE steps. When manual_review_required is FALSE, do NOT use "strategist review required" / "data signal weak" language anywhere in strategic_context. ` +
     `For HOLD and SCALE (when NOT manual-review), OPEN with an affirming sentence about what's working ("This campaign is performing — …") before any nuance; a healthy verdict should feel earned, not boring. ` +
     `Write PLAIN ENGLISH for a marketer — NEVER use "p50", "percentile", or "n=" notation anywhere; say "the average across 111 similar events" or "10x above similar events" instead. ` +
     `expected_outcome_template = one editable sentence the approver completes. ` +
@@ -164,13 +168,17 @@ export async function synthesize(
     action = "PAUSE";
   }
 
-  // FIX M: OR the model's manual_review flag with a deterministic data-quality
-  // check so a thin-data verdict can never be silently auto-actioned. Append the
-  // concrete weakness factors to the context if the model didn't already flag it.
+  // FIX M / FIX P: OR the model's manual_review flag with a deterministic
+  // data-quality check so a thin-data verdict can never be silently auto-actioned.
+  // BUT a deterministic show-passed PAUSE/KILL is already decisive — it needs no
+  // strategist review, so suppress the flag (and the weak-data tail) there.
   const weak = dataSignalWeak(report, lenses);
-  const manual_review_required = data.manual_review_required === true || weak.weak;
+  const decisivePassed = showHasPassed(report) && (action === "PAUSE" || action === "KILL");
+  const manual_review_required = decisivePassed
+    ? false
+    : data.manual_review_required === true || weak.weak;
   let strategic_context = String(data.strategic_context ?? "");
-  if (weak.weak && data.manual_review_required !== true) {
+  if (manual_review_required && weak.weak && data.manual_review_required !== true) {
     strategic_context +=
       (strategic_context ? " " : "") +
       `Data signal weak — recommend strategist review before automating. Factors: ${weak.factors.join("; ")}.`;

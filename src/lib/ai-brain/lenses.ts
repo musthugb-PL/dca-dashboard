@@ -174,6 +174,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "When citing this event's OWN ad sets, ALWAYS use the actual ad_name/campaign string from the data. If a top performer's ROAS exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event reallocation, Sacred Rule #9). " +
       "Each ad set is tagged [audience: …] (lookalike / broad / retargeting / interest / custom / creative_only / unclear). If an AUDIENCE PATTERN emerges (e.g. lookalikes outperforming broad), name it in the diagnosis with the ROAS gap. If a name carries no targeting signal (creative_only/unclear), say so — never invent targeting. " +
       "If affinity_siblings_running lists a PAST co-purchase edition (marked [PAST co-purchase edition]), you MAY note that the past buyer pool is a warm-audience seed — e.g. 'X users bought the 2024 edition → seed a Meta lookalike from that pool'. These are seeds, NOT currently-running campaigns; never cite live ROAS for them. " +
+      "Any affinity mention MUST name the specific source event and, for past editions, the exact shared-buyer count — the generic phrase 'similar audiences' is BANNED. If no affinity data exists, say so and do not invent one. " +
       "High score = Meta is the primary cause.",
     data: (r) => {
       const m = r.channels.find((c) => c.source === "Meta");
@@ -195,6 +196,7 @@ const CONFIG: Record<Exclude<LensName, "market">, LensCfg> = {
       "When citing this event's OWN ad groups, ALWAYS use the actual campaign/ad_group string. If a top performer's conversions/efficiency exceeds the worst performer's by 3x or more, recommend killing the worst and scaling the best (within-event, Sacred Rule #9). " +
       "Ad groups are tagged [audience: …]; if an audience/intent pattern emerges (e.g. concert-intent beating artist-only), name it. No signal in a name = say so, don't invent. " +
       "If affinity_siblings_running lists a PAST co-purchase edition (marked [PAST co-purchase edition]), the past buyer pool is a warm-audience seed for a Customer-Match / similar-audience list — note it as a seed, never as a live campaign. " +
+      "Any affinity mention MUST name the specific source event and, for past editions, the exact shared-buyer count — the generic phrase 'similar audiences' is BANNED. If no affinity data exists, say so and do not invent one. " +
       "High score = Google is the primary cause.",
     data: (r) => {
       const g = r.channels.find((c) => c.source.toLowerCase() === "google");
